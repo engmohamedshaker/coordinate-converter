@@ -1,0 +1,2184 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#B3322A">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="محول إحداثيات">
+<title>محول إحداثيات | by eng. Mohamed Shaker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<style>
+/* Layout: one working column. Settings strip, intake (drop zone + paste), then results table with a to-scale plot beside the actions. */
+:root{
+  --bg:#F2F3F0; --surface:#FFFFFF; --field:#FAFAF8;
+  --fg:#18201E; --muted:#5B6662; --line:#D3D8D3;
+  --accent:#B3322A; --accent-fg:#FFFFFF; --accent-soft:#F6E3E0;
+  --teal:#1E6B66; --ok:#1E6B3A; --warn:#8F5600; --warn-soft:#F7ECD4;
+  --font-text:"IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Consolas,"Courier New",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#101514; --surface:#171D1B; --field:#121816;
+    --fg:#E7ECE9; --muted:#9BA6A1; --line:#2B3532;
+    --accent:#E2685E; --accent-fg:#1A0907; --accent-soft:#2E1B19;
+    --teal:#5CC2BA; --ok:#6CCB8A; --warn:#E3A94A; --warn-soft:#2D2412;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101514; --surface:#171D1B; --field:#121816;
+  --fg:#E7ECE9; --muted:#9BA6A1; --line:#2B3532;
+  --accent:#E2685E; --accent-fg:#1A0907; --accent-soft:#2E1B19;
+  --teal:#5CC2BA; --ok:#6CCB8A; --warn:#E3A94A; --warn-soft:#2D2412;
+  color-scheme:dark;
+}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-text);font-size:15px;line-height:1.7;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+*{box-sizing:border-box}
+.wrap{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1{font-size:1.7rem;line-height:1.3;margin:0;font-weight:600;text-wrap:balance}
+h2{font-size:1.05rem;margin:0 0 10px;font-weight:600}
+p{margin:0}
+.lead{color:var(--muted);max-width:62ch;margin-top:6px}
+.rule{height:3px;width:56px;background:var(--accent);margin-bottom:14px;border-radius:2px}
+.muted{color:var(--muted)}
+label.lbl{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px;font-weight:500}
+select,input[type=text],textarea{width:100%;font:inherit;color:var(--fg);background:var(--field);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-width:0}
+select{padding-block:9px}
+textarea{font-family:var(--font-mono);font-size:.88rem;line-height:1.55;direction:ltr;text-align:left;min-height:120px;resize:vertical}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+.intake{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+@media (max-width:720px){.intake{grid-template-columns:minmax(0,1fr)}}
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;min-height:190px;padding:18px;border:2px dashed var(--line);border-radius:8px;background:var(--surface);cursor:pointer;transition:border-color .15s,background .15s}
+.drop:hover,.drop.over,.drop:focus-within{border-color:var(--accent);background:var(--accent-soft)}
+.drop strong{font-weight:600}
+.drop input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.drop .types{font-size:.82rem;color:var(--muted)}
+.thumb{max-width:100%;max-height:120px;border-radius:4px;border:1px solid var(--line)}
+.thumbwrap{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:10px}
+.seg{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.seg button{flex:1 1 180px}
+.mform{border:1px solid var(--line);border-radius:8px;padding:14px;background:var(--surface)}
+.mform .grp{border:1px dashed var(--line);border-radius:8px;padding:10px;margin-top:10px}
+.mform .tri{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.mform input{direction:ltr;text-align:center}
+.mform input#mname{direction:rtl;text-align:start}
+.sketchbox{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+.sketchbox canvas{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);margin-top:10px}
+button{font:inherit;cursor:pointer;border-radius:6px;padding:9px 16px;border:1px solid var(--line);background:var(--surface);color:var(--fg);font-weight:500}
+button:hover:not(:disabled){border-color:var(--fg)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+button.primary:hover:not(:disabled){filter:brightness(1.08);border-color:var(--accent)}
+button.small{padding:3px 10px;font-size:.82rem}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.msg{min-height:1.7em;font-size:.92rem}
+.msg.err{color:var(--accent)}
+.msg.ok{color:var(--ok)}
+.msg.warn{color:var(--warn)}
+.badge{display:inline-block;font-size:.76rem;padding:1px 9px;border-radius:99px;background:var(--warn-soft);color:var(--warn);font-weight:600}
+.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:980px;font-size:.88rem}
+th{font-size:.76rem;font-weight:600;color:var(--muted);text-align:right;padding:8px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:4px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td input{padding:5px 7px;font-size:.86rem}
+td input.num{font-family:var(--font-mono);direction:ltr;text-align:left}
+td.out{font-family:var(--font-mono);direction:ltr;text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums}
+td.idx{color:var(--muted);width:2.2em;text-align:center}
+.st{white-space:nowrap;font-size:.82rem}
+.st.ok{color:var(--ok)}.st.bad{color:var(--accent)}.st.warn{color:var(--warn)}
+td input[data-f="vals"]{min-width:15em}
+td input.flag{border-color:var(--warn);background:var(--warn-soft)}
+td.imgc{padding:4px 6px}
+.rowimg{display:block;max-width:230px;max-height:52px;border:1px solid var(--line);border-radius:4px}
+.results{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+.plotbox{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:6px}
+svg#plot{display:block;width:100%;height:auto;direction:ltr}
+.p-poly{fill:var(--accent);fill-opacity:.12;stroke:var(--accent);stroke-width:1.6}
+.p-line{fill:none;stroke:var(--accent);stroke-width:1.6}
+.p-dot{fill:var(--accent)}
+.p-lbl{fill:var(--fg);font:11px var(--font-mono)}
+.p-axis{stroke:var(--fg);stroke-width:1.4;fill:none}
+.p-txt{fill:var(--muted);font:11px var(--font-mono)}
+details{border-top:1px solid var(--line);padding-top:12px}
+summary{cursor:pointer;font-weight:500}
+pre{margin:10px 0 0;padding:12px;background:var(--field);border:1px solid var(--line);border-radius:6px;overflow-x:auto;direction:ltr;text-align:left;font:.8rem/1.55 var(--font-mono)}
+.by{direction:ltr;text-align:right;font-family:var(--font-mono);font-size:.95rem;color:var(--accent);margin-top:4px;font-weight:500}
+footer{border-top:1px solid var(--line);padding-top:14px;color:var(--muted);font-size:.85rem;direction:ltr;text-align:center;font-family:var(--font-mono)}
+.note{background:var(--warn-soft);color:var(--fg);border-radius:6px;padding:10px 14px;font-size:.9rem}
+</style>
+</head>
+<body>
+
+<div class="wrap" dir="rtl" lang="ar">
+  <header>
+    <div class="rule"></div>
+    <h1>محول إحداثيات</h1>
+    <p class="by">by eng. Mohamed Shaker</p>
+    <p class="lead" style="margin-top:10px">ارفع صورة جدول إحداثيات أو ملف CSV أو Excel، وحوّل النقاط من الحزام الأحمر (أو غيره) إلى WGS84 واحصل على ملف يفتح في Google Earth.</p>
+    <div class="row" style="margin-top:12px">
+      <button id="install" type="button" class="primary" hidden>تثبيت التطبيق على الجهاز</button>
+    </div>
+    <p class="note" id="iosHint" hidden style="margin-top:12px">لتثبيته على iPhone أو iPad: اضغط زر المشاركة في Safari ثم اختر "إضافة إلى الشاشة الرئيسية".</p>
+  </header>
+
+  <section aria-labelledby="h-set">
+    <h2 id="h-set">إعدادات التحويل</h2>
+    <div class="grid">
+      <div><label class="lbl" for="sys">نظام الإحداثيات في الجدول</label>
+        <select id="sys"></select></div>
+      <div><label class="lbl" for="order">ترتيب العمودين</label>
+        <select id="order">
+          <option value="auto">تلقائي (حسب وقوع النقاط داخل مصر)</option>
+          <option value="xy">الأول X (شرقي / خط الطول) ثم Y</option>
+          <option value="yx">الأول Y (شمالي / دائرة العرض) ثم X</option>
+        </select></div>
+      <div><label class="lbl" for="mode">طريقة العرض في Google Earth</label>
+        <select id="mode">
+          <option value="pts">نقاط منفصلة (كل نقطة بمفردها)</option>
+          <option value="poly">وحدة واحدة: مضلع مغلق</option>
+          <option value="line">وحدة واحدة: خط يصل النقاط</option>
+        </select></div>
+      <div id="vertsWrap" hidden style="align-self:end;padding-bottom:9px"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="verts" checked> إظهار النقاط على رؤوس الشكل</label></div>
+      <div><label class="lbl" for="outfmt">عرض الإحداثيات الناتجة</label>
+        <select id="outfmt">
+          <option value="dec">درجات عشرية</option>
+          <option value="dms">درجات ودقائق وثوانٍ</option>
+        </select></div>
+      <div><label class="lbl" for="docname">اسم الملف والطبقة</label>
+        <input type="text" id="docname" value="إحداثيات"></div>
+    </div>
+  </section>
+
+  <details id="aiBox">
+    <summary>وضع الدقة القصوى (اختياري): قراءة الصور بواسطة Claude</summary>
+    <p class="muted" style="margin:8px 0">تُرسل الصورة إلى Anthropic عبر مفتاح API الخاص بك (يلزم حساب API مدفوع). لا يُرسل المفتاح إلى أي جهة أخرى. إن فشل الاتصال تُستخدم القراءة المحلية تلقائيًا.</p>
+    <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px"><input type="checkbox" id="aiOn"> استخدم Claude لقراءة الصور</label>
+    <label class="lbl" for="apikey">مفتاح API</label>
+    <input type="password" id="apikey" dir="ltr" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+    <label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="aiRemember"> تذكّر المفتاح على هذا الجهاز فقط</label>
+  </details>
+
+  <section aria-labelledby="h-in">
+    <h2 id="h-in">البيانات</h2>
+    <div class="seg" role="group" aria-label="طريقة إدخال الإحداثيات">
+      <button type="button" id="modeFile" class="primary" aria-pressed="true">رفع صورة أو ملف</button>
+      <button type="button" id="modeMan" aria-pressed="false">إدخال الإحداثيات يدويًا</button>
+    </div>
+    <div id="pMan" hidden>
+      <div class="mform">
+        <div class="grid">
+          <div><label class="lbl" for="mfmt">صيغة الإحداثيات</label>
+            <select id="mfmt">
+              <option value="dec">نظام عشري (درجات عشرية أو أمتار)</option>
+              <option value="dms">درجات ودقائق وثوانٍ (DMS)</option>
+            </select></div>
+        </div>
+        <p class="muted" id="mhint" style="font-size:.85rem;margin:8px 0 0">أدخل الأرقام كما هي في جدولك. اختر نظام الإحداثيات من "إعدادات التحويل" أعلاه، فإن لم تكن بنظام WGS84 (مثل الحزام الأحمر أو UTM) فتُحوَّل تلقائيًا إلى WGS84.</p>
+        <form id="mform" autocomplete="off">
+          <label class="lbl" for="mname" style="margin-top:10px">رقم أو اسم النقطة (اختياري)</label>
+          <input type="text" id="mname" placeholder="1">
+          <div id="mDec" class="grid" style="margin-top:10px">
+            <div><label class="lbl" for="mx">الأول: X / الشرقيات / خط الطول</label><input type="text" id="mx" inputmode="decimal" dir="ltr" placeholder="مثال 637598.619 أو 32.551535"></div>
+            <div><label class="lbl" for="my">الثاني: Y / الشماليات / دائرة العرض</label><input type="text" id="my" inputmode="decimal" dir="ltr" placeholder="مثال 815325.817 أو 25.356283"></div>
+          </div>
+          <div id="mDms" hidden>
+            <div class="grp"><strong>الأول (خط الطول)</strong> <select id="h1" aria-label="شرق أو غرب" style="width:auto;margin-inline-start:8px"><option value="">شرق E</option><option value="-">غرب W</option></select>
+              <div class="tri" style="margin-top:6px">
+                <div><label class="lbl" for="d1">درجة</label><input type="text" id="d1" inputmode="decimal" placeholder="32"></div>
+                <div><label class="lbl" for="m1">دقيقة</label><input type="text" id="m1" inputmode="decimal" placeholder="46"></div>
+                <div><label class="lbl" for="s1">ثانية</label><input type="text" id="s1" inputmode="decimal" placeholder="42.456"></div>
+              </div></div>
+            <div class="grp"><strong>الثاني (دائرة العرض)</strong> <select id="h2" aria-label="شمال أو جنوب" style="width:auto;margin-inline-start:8px"><option value="">شمال N</option><option value="-">جنوب S</option></select>
+              <div class="tri" style="margin-top:6px">
+                <div><label class="lbl" for="d2">درجة</label><input type="text" id="d2" inputmode="decimal" placeholder="25"></div>
+                <div><label class="lbl" for="m2">دقيقة</label><input type="text" id="m2" inputmode="decimal" placeholder="57"></div>
+                <div><label class="lbl" for="s2">ثانية</label><input type="text" id="s2" inputmode="decimal" placeholder="13.352"></div>
+              </div></div>
+          </div>
+          <div id="mprev" class="muted" style="margin-top:10px;font-size:.88rem" dir="ltr"></div>
+          <div class="row" style="margin-top:12px">
+            <button type="submit" class="primary">إضافة النقطة</button>
+            <button type="button" id="mclear">مسح كل النقاط</button>
+            <span id="mmsg" class="muted" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div id="pFile">
+    <div class="intake">
+      <div class="drop" id="drop" role="button" tabindex="0" aria-label="اختيار صورة أو ملف من الجهاز">
+        <strong>اسحب الملف هنا أو اضغط للاختيار</strong>
+        <span class="types">صورة الجدول (PNG / JPG) · CSV · TXT · XLSX</span>
+        <div class="row" style="justify-content:center">
+          <button id="pick" type="button" class="primary">اختيار صورة أو ملف</button>
+          <button id="cam" type="button" hidden>تصوير الجدول بالكاميرا</button>
+        </div>
+        <div class="thumbwrap" id="thumbWrap" hidden>
+          <img id="thumb" class="thumb" alt="الصورة المختارة">
+          <button id="rmimg" type="button" class="small">حذف الصورة</button>
+        </div>
+        <input type="file" id="file" accept="image/*,.csv,.txt,.tsv,.xlsx,.xls,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+        <input type="file" id="camfile" accept="image/*" capture="environment">
+      </div>
+      <div>
+        <label class="lbl" for="paste">أو الصق الأرقام (نقطة في كل سطر: الاسم، ثم العمودان)</label>
+        <textarea id="paste" spellcheck="false" aria-describedby="pasteHint"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button id="parse" type="button">قراءة الأرقام</button>
+          <span id="pasteHint" class="muted" style="font-size:.82rem">تُقبل الأرقام العربية والفواصل والمسافات.</span>
+        </div>
+      </div>
+    </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="stop" type="button" hidden>إيقاف القراءة</button>
+      <div class="msg" id="msg" role="status" aria-live="polite"></div>
+    </div>
+    <p class="muted" style="font-size:.85rem;margin-top:6px">تقرأ الأداة الجدول خلية بخلية وتحوّل الدرجات والدقائق والثواني إلى درجات عشرية. تظهر صورة كل صف بجانب أرقامه لتطابقها، وتُميَّز الصفوف غير المؤكدة بالأصفر. قراءة الصور تتم داخل متصفحك وتحتاج إنترنت.</p>
+  </section>
+
+  <section aria-labelledby="h-out">
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <h2 id="h-out" style="margin:0">النتيجة بعد التحويل إلى WGS84</h2>
+      <span class="badge" id="exBadge">بيانات مثال، استبدلها ببياناتك</span>
+    </div>
+    <div class="results">
+      <div>
+        <div class="tablebox">
+          <table>
+            <thead><tr>
+              <th>#</th><th>الاسم</th><th>القيم كما في الجدول</th><th id="thImg" hidden>صورة الصف</th>
+              <th>دائرة العرض</th><th>خط الطول</th><th>الحالة</th><th></th>
+            </tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="add" type="button" class="small">إضافة نقطة</button>
+          <span class="muted" style="font-size:.84rem">راجع الأرقام المقروءة من الصورة وعدّلها عند الحاجة. يُعاد الحساب فورًا.</span>
+        </div>
+      </div>
+      <div class="plotbox"><svg id="plot" viewBox="0 0 640 300" role="img" aria-label="رسم تخطيطي لمواضع النقاط"></svg></div>
+      <div id="summary" class="muted"></div>
+      <div class="row">
+        <button id="kmz" type="button" class="primary">تنزيل KMZ</button>
+        <button id="ge" type="button">فتح في Google Earth</button>
+        <button id="share" type="button" hidden>مشاركة KMZ</button>
+        <button id="copykml" type="button">نسخ KML</button>
+        <button id="csv" type="button">تنزيل CSV</button>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="autoGE" checked> فتح Google Earth تلقائيًا بعد إنشاء KMZ</label>
+      <div class="msg" id="outmsg" role="status" aria-live="polite"></div>
+      <div class="sketchbox">
+        <strong>الكروكي (على صورة الأقمار الصناعية)</strong>
+        <p class="muted" style="font-size:.84rem;margin:6px 0 0">صور Google Earth نفسها لا يسمح Google بتضمينها داخل أدوات خارجية، لذلك يرسم الكروكي هنا على صورة أقمار صناعية بديلة. للحصول على صورة Google Earth الحقيقية: نزّل KMZ وافتحه في Google Earth، فيعرض نفس المنطقة بمنظر علوي موجّه للشمال مع إطار النطاق، ثم احفظ الصورة أو خذ لقطة شاشة.</p>
+        <div class="row" style="margin-top:8px">
+          <button id="sk" type="button" class="primary">رسم الكروكي</button>
+          <button id="skdl" type="button" hidden>تنزيل الكروكي PNG</button>
+          <button id="skshare" type="button" hidden>مشاركة الكروكي</button>
+        </div>
+        <div class="row" style="margin-top:8px;align-items:center">
+          <label for="skbuf">نطاق المعالم حول النقاط (متر)</label>
+          <input type="number" id="skbuf" value="50" min="0" max="500" step="10" inputmode="numeric" style="width:6em">
+          <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="skosm" checked> إظهار الشوارع والزراعة والمباني</label>
+        </div>
+        <div class="msg" id="skmsg" role="status" aria-live="polite"></div>
+        <canvas id="skcv" width="1280" height="960" hidden aria-label="الكروكي"></canvas>
+      </div>
+            <textarea id="kmlbox" readonly hidden aria-label="نص KML"></textarea>
+    </div>
+  </section>
+
+  <details>
+    <summary>معاملات التحويل</summary>
+    <p class="muted" style="margin-top:8px">الحزام الأحمر المصري (EPSG:22992) يعتمد مرجع Egypt 1907 وإهليلج Helmert 1906. يُنقل إلى WGS84 بإزاحة ثلاثية المعاملات (dX = −130، dY = 110، dZ = −13 متر). إن كانت أرضيتك مرصودة أصلًا على WGS84 بإسقاط الحزام الأحمر، اختر الخيار المقابل بدون إزاحة.</p>
+    <pre id="projdef"></pre>
+  </details>
+  <footer>by eng. Mohamed Shaker</footer>
+</div>
+
+<script>
+/* TableCore: reads numeric tables from photos. Pure typed-array code (no DOM) so it can be tested in Node. */
+(function(root){
+'use strict';
+
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+
+/* ---------- basic image ops ---------- */
+function cubicW(t){ var t2=t*t, t3=t2*t; return [-0.5*t3+t2-0.5*t, 1.5*t3-2.5*t2+1, -1.5*t3+2*t2+0.5*t, 0.5*t3-0.5*t2]; }
+function resizeGray(src,sw,sh,dw,dh){
+  dw=Math.max(1,Math.round(dw)); dh=Math.max(1,Math.round(dh));
+  var dst=new Uint8Array(dw*dh), x, y;
+  if (dw>=sw && dh>=sh) {
+    var xi=new Int32Array(dw*4), xw=new Float32Array(dw*4), k;
+    for (x=0;x<dw;x++){
+      var sxf=(x+0.5)*sw/dw-0.5, xf=Math.floor(sxf), tx=sxf-xf, wts=cubicW(tx);
+      for (k=0;k<4;k++){ xi[x*4+k]=clamp(xf-1+k,0,sw-1); xw[x*4+k]=wts[k]; }
+    }
+    for (y=0;y<dh;y++){
+      var syf=(y+0.5)*sh/dh-0.5, yf=Math.floor(syf), wy=cubicW(syf-yf), rows=[0,0,0,0];
+      for (k=0;k<4;k++) rows[k]=clamp(yf-1+k,0,sh-1)*sw;
+      for (x=0;x<dw;x++){
+        var acc=0;
+        for (var j=0;j<4;j++){
+          var rr=rows[j], a2=0;
+          a2=src[rr+xi[x*4]]*xw[x*4]+src[rr+xi[x*4+1]]*xw[x*4+1]+src[rr+xi[x*4+2]]*xw[x*4+2]+src[rr+xi[x*4+3]]*xw[x*4+3];
+          acc+=a2*wy[j];
+        }
+        dst[y*dw+x]=acc<0?0:(acc>255?255:(acc+0.5)|0);
+      }
+    }
+    return dst;
+  }
+  var W=sw+1, I=new Float64Array(W*(sh+1));
+  for (y=0;y<sh;y++){ var row=0; for (x=0;x<sw;x++){ row+=src[y*sw+x]; I[(y+1)*W+x+1]=I[y*W+x+1]+row; } }
+  for (y=0;y<dh;y++){
+    var ya=Math.floor(y*sh/dh), yb=Math.max(ya+1,Math.min(sh,Math.ceil((y+1)*sh/dh)));
+    for (x=0;x<dw;x++){
+      var xa=Math.floor(x*sw/dw), xb=Math.max(xa+1,Math.min(sw,Math.ceil((x+1)*sw/dw)));
+      var s=I[yb*W+xb]-I[ya*W+xb]-I[yb*W+xa]+I[ya*W+xa];
+      dst[y*dw+x]=(s/((xb-xa)*(yb-ya))+0.5)|0;
+    }
+  }
+  return dst;
+}
+
+function otsu(gray){
+  var hist=new Float64Array(256), i, n=gray.length;
+  for (i=0;i<n;i++) hist[gray[i]]++;
+  var sum=0; for (i=0;i<256;i++) sum+=i*hist[i];
+  var sB=0, wB=0, best=-1, t=128;
+  for (i=0;i<256;i++){
+    wB+=hist[i]; if(!wB) continue;
+    var wF=n-wB; if(!wF) break;
+    sB+=i*hist[i];
+    var mB=sB/wB, mF=(sum-sB)/wF, bt=wB*wF*(mB-mF)*(mB-mF);
+    if (bt>best){ best=bt; t=i; }
+  }
+  return t;
+}
+
+/* ink = 1 where the pixel is clearly darker than its neighbourhood */
+function adaptiveBin(gray,w,h,frac){
+  var r=Math.max(12,Math.round(w/30)), W=w+1, I=new Float64Array(W*(h+1)), x, y;
+  for (y=0;y<h;y++){ var row=0; for (x=0;x<w;x++){ row+=gray[y*w+x]; I[(y+1)*W+x+1]=I[y*W+x+1]+row; } }
+  var out=new Uint8Array(w*h);
+  for (y=0;y<h;y++){
+    var ya=Math.max(0,y-r), yb=Math.min(h,y+r+1);
+    for (x=0;x<w;x++){
+      var xa=Math.max(0,x-r), xb=Math.min(w,x+r+1);
+      var mean=(I[yb*W+xb]-I[ya*W+xb]-I[yb*W+xa]+I[ya*W+xa])/((xb-xa)*(yb-ya));
+      out[y*w+x]=gray[y*w+x]<mean*frac?1:0;
+    }
+  }
+  return out;
+}
+
+function estimateSkew(bin,w,h){
+  var s=Math.max(1,Math.floor(w/700)), xs=[], ys=[], x, y;
+  for (y=0;y<h;y+=s) for (x=0;x<w;x+=s) if (bin[y*w+x]) { xs.push(x/s); ys.push(y/s); }
+  var n=xs.length; if (n<50) return 0;
+  var maxX=w/s, maxY=h/s;
+  function score(a){
+    var th=a*Math.PI/180, c=Math.cos(th), sn=Math.sin(th), off=Math.abs(sn)*maxX+3;
+    var hist=new Float64Array(Math.ceil(maxY+2*off+6)), i;
+    for (i=0;i<n;i++) hist[((ys[i]*c-xs[i]*sn)+off)|0]++;
+    var sc=0; for (i=0;i<hist.length;i++) sc+=hist[i]*hist[i];
+    return sc;
+  }
+  var best=-1, ba=0, a;
+  for (a=-8;a<=8.0001;a+=0.25){ var v=score(a); if (v>best){ best=v; ba=a; } }
+  var c0=ba; for (a=c0-0.25;a<=c0+0.2501;a+=0.05){ var v2=score(a); if (v2>best){ best=v2; ba=a; } }
+  return ba;
+}
+
+/* rotate by `ang` degrees (positive = counter-clockwise on screen), white background */
+function rotateGray(gray,w,h,ang){
+  var th=ang*Math.PI/180, c=Math.cos(th), s=Math.sin(th), cx=(w-1)/2, cy=(h-1)/2;
+  var out=new Uint8Array(w*h), x, y;
+  for (y=0;y<h;y++) for (x=0;x<w;x++){
+    var rx=x-cx, ry=y-cy, sx=c*rx-s*ry+cx, sy=s*rx+c*ry+cy;
+    if (sx<0||sy<0||sx>w-1||sy>h-1){ out[y*w+x]=255; continue; }
+    var x0=sx|0, y0=sy|0, x1=Math.min(w-1,x0+1), y1=Math.min(h-1,y0+1), wx=sx-x0, wy=sy-y0;
+    out[y*w+x]=(gray[y0*w+x0]*(1-wx)*(1-wy)+gray[y0*w+x1]*wx*(1-wy)+gray[y1*w+x0]*(1-wx)*wy+gray[y1*w+x1]*wx*wy+0.5)|0;
+  }
+  return out;
+}
+
+/* prepare: scale to ~1800 px wide, fix polarity, deskew */
+function prepare(gray,w,h){
+  var k=clamp(1800/w,1,3);
+  if (w*k*h*k>12e6) k=Math.sqrt(12e6/(w*h));
+  var nw=Math.round(w*k), nh=Math.round(h*k);
+  var g=(nw===w&&nh===h)?gray.slice():resizeGray(gray,w,h,nw,nh), i, sum=0;
+  for (i=0;i<g.length;i+=7) sum+=g[i];
+  if (sum/Math.ceil(g.length/7)<110) for (i=0;i<g.length;i++) g[i]=255-g[i];
+  var bin=adaptiveBin(g,nw,nh,0.88), ang=estimateSkew(bin,nw,nh);
+  if (Math.abs(ang)>=0.3) g=rotateGray(g,nw,nh,ang);
+  return {gray:g,w:nw,h:nh,angle:ang};
+}
+
+/* ---------- structure ---------- */
+function runMask(bin,w,h,minRun,horizontal,gapTol){
+  var mask=new Uint8Array(w*h), a, b, s, p, gap;
+  var outer=horizontal?h:w, inner=horizontal?w:h;
+  for (a=0;a<outer;a++){
+    s=-1; p=-1; gap=0;
+    for (b=0;b<=inner;b++){
+      var on=b<inner && bin[horizontal?(a*w+b):(b*w+a)];
+      if (on){ if (s<0) s=b; p=b; gap=0; }
+      else if (s>=0){
+        gap++;
+        if (gap>gapTol||b>=inner){
+          if (p-s+1>=minRun){ for (var j=s;j<=p;j++) mask[horizontal?(a*w+j):(j*w+a)]=1; }
+          s=-1; gap=0;
+        }
+      }
+    }
+  }
+  return mask;
+}
+
+function groupsOf(prof,thr,gap){
+  var out=[], s=-1, p=-1, i;
+  for (i=0;i<prof.length;i++){
+    if (prof[i]>=thr){ if (s<0) s=i; else if (i-p>gap){ out.push([s,p]); s=i; } p=i; }
+  }
+  if (s>=0) out.push([s,p]);
+  return out;
+}
+
+function median(a){ if(!a.length) return 0; var b=a.slice().sort(function(x,y){return x-y;}); return b[b.length>>1]; }
+
+function findBands(P){
+  var w=P.w, h=P.h, g=P.gray;
+  var bin=adaptiveBin(g,w,h,0.88);
+  var hm=runMask(bin,w,h,Math.max(60,Math.round(0.05*w)),true,3);
+  var hs=new Float64Array(h), x, y, mx=0;
+  for (y=0;y<h;y++){ var c=0; for (x=0;x<w;x++) c+=hm[y*w+x]; hs[y]=c; if (c>mx) mx=c; }
+  var lines=mx>0?groupsOf(hs,0.5*mx,4):[];
+  var clean=g.slice(), ink=bin.slice(), i;
+  /* erase horizontal lines (+/- 3 rows) from ink and from the grey copy */
+  for (y=0;y<h;y++){ for (x=0;x<w;x++) if (hm[y*w+x]){
+    for (var dy=-3;dy<=3;dy++){ var yy=y+dy; if (yy>=0&&yy<h){ ink[yy*w+x]=0; clean[yy*w+x]=255; } }
+  } }
+  var bands=[], mode;
+  if (lines.length>=3){
+    mode='lines';
+    for (i=0;i+1<lines.length;i++){
+      var t=lines[i][1]+4, b=lines[i+1][0]-4;
+      if (b-t>=16) bands.push({y0:t,y1:b});
+    }
+  } else {
+    mode='text';
+    var prof=new Float64Array(h);
+    for (y=0;y<h;y++){ var cc=0; for (x=0;x<w;x++) cc+=ink[y*w+x]; prof[y]=cc; }
+    var pm=0; for (y=0;y<h;y++) if (prof[y]>pm) pm=prof[y];
+    var gs=groupsOf(prof,Math.max(3,0.06*pm),3);
+    var hh=median(gs.map(function(q){return q[1]-q[0]+1;}));
+    var merged=[];
+    gs.forEach(function(q){
+      var last=merged[merged.length-1];
+      if (last && q[0]-last[1]<0.35*hh) last[1]=q[1]; else merged.push([q[0],q[1]]);
+    });
+    merged.forEach(function(q){ if (q[1]-q[0]+1>=0.45*hh){ var pad=Math.round(0.25*hh); bands.push({y0:Math.max(0,q[0]-pad),y1:Math.min(h-1,q[1]+pad)}); } });
+  }
+  /* inside each band: drop vertical lines, then cut into tokens at wide gaps */
+  bands.forEach(function(B){
+    var bh=B.y1-B.y0+1, ys, vcol=new Uint8Array(w);   /* vcol kept for the tokenizer: columns that still hold a leftover line */
+    /* --- vertical lines, tolerant of slant: find them in short slices, link the slices, erase along the track --- */
+    var K=Math.max(1,Math.round(bh/36)), tracks=[], k, sliceC=[];
+    for (k=0;k<K;k++){
+      var ya=B.y0+Math.floor(k*bh/K), yb=B.y0+Math.floor((k+1)*bh/K)-1, rows=yb-ya+1, cn=new Float64Array(w), yy2;
+      for (yy2=ya;yy2<=yb;yy2++){
+        var pre2=new Int32Array(w+1);
+        for (x=0;x<w;x++) pre2[x+1]=pre2[x]+ink[yy2*w+x];
+        for (x=0;x<w;x++){ var xa2=Math.max(0,x-2), xb2=Math.min(w,x+3); if (pre2[xb2]-pre2[xa2]>0) cn[x]++; }
+      }
+      var cands=[], gs=-1;
+      for (x=0;x<=w;x++){
+        var onx=x<w&&cn[x]>=0.9*rows;
+        if (onx&&gs<0) gs=x;
+        if (!onx&&gs>=0){ cands.push({c:(gs+x-1)/2,wd:Math.max(1,x-gs-4)}); gs=-1; }
+      }
+      sliceC.push({ym:(ya+yb)/2,cands:cands});
+    }
+    if (K===1){
+      sliceC[0].cands.forEach(function(cd){ tracks.push({pts:[[sliceC[0].ym,cd.c]],wd:cd.wd}); });
+    } else {
+      var open=[];
+      sliceC.forEach(function(sc,idx){
+        var used={};
+        open.forEach(function(tr){
+          var last=tr.pts[tr.pts.length-1], bestI=-1, bd=1e9;
+          sc.cands.forEach(function(cd,ci){ var d=Math.abs(cd.c-last[1]); if (!used[ci]&&d<bd&&d<=Math.max(8,0.04*bh/ K*3)){ bd=d; bestI=ci; } });
+          if (bestI>=0){ used[bestI]=1; tr.pts.push([sc.ym,sc.cands[bestI].c]); tr.wds.push(sc.cands[bestI].wd); tr.last=idx; }
+        });
+        sc.cands.forEach(function(cd,ci){ if (!used[ci]){ var tr={pts:[[sc.ym,cd.c]],wds:[cd.wd],last:idx}; open.push(tr); tracks.push(tr); } });
+      });
+      tracks=tracks.filter(function(tr){ return tr.pts.length>=Math.ceil(0.75*K); }).map(function(tr){ return {pts:tr.pts,wd:median(tr.wds)}; });
+    }
+    var cuts=[];
+    tracks.forEach(function(tr){
+      var P2=tr.pts, hw=Math.max(3,Math.round(tr.wd/2)+4), yy3;
+      var cmid=0; P2.forEach(function(q){ cmid+=q[1]; }); cuts.push(cmid/P2.length);
+      for (yy3=B.y0;yy3<=B.y1;yy3++){
+        var xc;
+        if (P2.length===1) xc=P2[0][1];
+        else {   /* straight-line fit through the slice centres */
+          var n2=P2.length, sy=0, sx2=0, syy=0, sxy=0, q;
+          for (q=0;q<n2;q++){ sy+=P2[q][0]; sx2+=P2[q][1]; syy+=P2[q][0]*P2[q][0]; sxy+=P2[q][0]*P2[q][1]; }
+          var den=n2*syy-sy*sy, bb=den?(n2*sxy-sy*sx2)/den:0, aa=(sx2-bb*sy)/n2;
+          xc=aa+bb*yy3;
+        }
+        var xs0=Math.max(0,Math.round(xc)-hw), xs1=Math.min(w-1,Math.round(xc)+hw), xq;
+        for (xq=xs0;xq<=xs1;xq++){ ink[yy3*w+xq]=0; clean[yy3*w+xq]=255; vcol[xq]=1; }
+      }
+    });
+    /* leftovers of table lines: thin, tall bars (a real digit has a much wider bounding box) */
+    (function(){
+      var seen=new Uint8Array(w*bh), stack=new Int32Array(w*bh), xx0, yy0;
+      for (yy0=0;yy0<bh;yy0++) for (xx0=0;xx0<w;xx0++){
+        var id0=yy0*w+xx0;
+        if (seen[id0]||!ink[(B.y0+yy0)*w+xx0]) continue;
+        var sp=0, minx=xx0, maxx=xx0, miny=yy0, maxy=yy0, cntp=0, pix=[];
+        stack[sp++]=id0; seen[id0]=1;
+        while (sp>0){
+          var cur=stack[--sp], cx=cur%w, cy=(cur-cx)/w; pix.push(cur); cntp++;
+          if (cx<minx) minx=cx; if (cx>maxx) maxx=cx; if (cy<miny) miny=cy; if (cy>maxy) maxy=cy;
+          var nb=[cx>0?cur-1:-1, cx<w-1?cur+1:-1, cy>0?cur-w:-1, cy<bh-1?cur+w:-1], q2;
+          for (q2=0;q2<4;q2++){ var nn=nb[q2]; if (nn>=0&&!seen[nn]&&ink[(B.y0+(nn-(nn%w))/w)*w+(nn%w)]){ seen[nn]=1; stack[sp++]=nn; } }
+        }
+        var cw=maxx-minx+1, ch2=maxy-miny+1;
+        if (ch2>=0.5*bh&&cw<=Math.max(5,0.07*ch2)){
+          pix.forEach(function(pp){ var px=pp%w, py=B.y0+(pp-px)/w; ink[py*w+px]=0; for (var dx=-1;dx<=1;dx++){ var xq2=px+dx; if (xq2>=0&&xq2<w) clean[py*w+xq2]=255; } vcol[px]=1; });
+        }
+      }
+    })();
+    var edge=3, colp=new Float64Array(w), rowp=new Float64Array(bh);
+    for (ys=B.y0+edge;ys<=B.y1-edge;ys++) for (x=0;x<w;x++){
+      if (ink[ys*w+x]){ colp[x]++; rowp[ys-B.y0]++; }
+    }
+    var top=-1, bot=-1;
+    var rmx=0; for (i=0;i<bh;i++) if (rowp[i]>rmx) rmx=rowp[i];
+    for (i=0;i<bh;i++) if (rowp[i]>=Math.max(2,0.12*rmx)){ if (top<0) top=i; bot=i; }
+    B.tokens=[]; if (top<0) return;
+    B.ty0=B.y0+top; B.ty1=B.y0+bot; B.Ht=bot-top+1;
+    var gTh=Math.max(10,Math.round(0.5*B.Ht)), s=-1, p=-1;
+    function push(a,b2){
+      var ink2=0, ta=1e9, tb=-1;
+      for (var yy=B.ty0;yy<=B.ty1;yy++) for (var xx=a;xx<=b2;xx++) if (ink[yy*w+xx]){ ink2++; if (yy<ta) ta=yy; if (yy>tb) tb=yy; }
+      if (b2-a+1<0.12*B.Ht||ink2<0.015*B.Ht*B.Ht) return;
+      B.tokens.push({x0:a,x1:b2,y0:ta,y1:tb});
+    }
+    for (x=0;x<w;x++){
+      if (colp[x]>0){ var cutHere=false; if (s>=0) cuts.forEach(function(c){ if (p<c&&x>=c) cutHere=true; }); if (s<0) s=x; else if (x-p>gTh||cutHere){ push(s,p); s=x; } p=x; }
+    }
+    if (s>=0) push(s,p);
+  });
+  return {bands:bands, clean:clean, mode:mode, lines:lines};
+}
+
+/* ---------- token images ---------- */
+function cropGray(src,w,x0,y0,x1,y1){
+  var cw=x1-x0+1, ch=y1-y0+1, out=new Uint8Array(cw*ch), x, y;
+  for (y=0;y<ch;y++) for (x=0;x<cw;x++) out[y*cw+x]=src[(y0+y)*w+x0+x];
+  return {data:out,w:cw,h:ch};
+}
+function stretch(img){
+  var d=img.data, hist=new Float64Array(256), i, n=d.length;
+  for (i=0;i<n;i++) hist[d[i]]++;
+  var lo=0, hi=255, acc=0;
+  for (i=0;i<256;i++){ acc+=hist[i]; if (acc>=0.01*n){ lo=i; break; } }
+  acc=0; for (i=255;i>=0;i--){ acc+=hist[i]; if (acc>=0.15*n){ hi=i; break; } }
+  if (hi-lo<40){ lo=Math.max(0,hi-120); }
+  var out=new Uint8Array(n);
+  for (i=0;i<n;i++) out[i]=clamp(((d[i]-lo)*255/(hi-lo))+0.5,0,255)|0;
+  return {data:out,w:img.w,h:img.h};
+}
+function padImg(img,px,py,val){
+  var nw=img.w+2*px, nh=img.h+2*py, out=new Uint8Array(nw*nh).fill(val), y;
+  for (y=0;y<img.h;y++) out.set(img.data.subarray(y*img.w,(y+1)*img.w),(y+py)*nw+px);
+  return {data:out,w:nw,h:nh};
+}
+function scaleToHeight(img,th){
+  var s=th/img.h, nw=Math.max(8,Math.round(img.w*s));
+  return {data:resizeGray(img.data,img.w,img.h,nw,th),w:nw,h:th};
+}
+function sharpen(img){
+  var w=img.w,h=img.h,d=img.data,out=new Uint8Array(d.length),x,y;
+  for (y=0;y<h;y++) for (x=0;x<w;x++){
+    var c=d[y*w+x], n=d[Math.max(0,y-1)*w+x], s=d[Math.min(h-1,y+1)*w+x], e=d[y*w+Math.min(w-1,x+1)], ww=d[y*w+Math.max(0,x-1)];
+    out[y*w+x]=clamp(5*c-n-s-e-ww,0,255);
+  }
+  return {data:out,w:w,h:h};
+}
+function tokenVariants(P,F,T,Ht){
+  var pad=Math.max(2,Math.round(0.2*Ht));
+  var x0=Math.max(0,T.x0-pad), x1=Math.min(P.w-1,T.x1+pad), y0=Math.max(0,T.y0-pad), y1=Math.min(P.h-1,T.y1+pad);
+  var c=stretch(cropGray(F.clean,P.w,x0,y0,x1,y1));
+  var v1=padImg(scaleToHeight(c,64),24,24,255);
+  var t=otsu(c.data), bd=new Uint8Array(c.data.length), i;
+  for (i=0;i<bd.length;i++) bd[i]=c.data[i]<=t?0:255;
+  var v2=padImg(scaleToHeight({data:bd,w:c.w,h:c.h},100),30,30,255);
+  var v3=padImg(sharpen(scaleToHeight(c,140)),40,40,255);
+  return [v1,v2,v3];
+}
+
+function tokenImage(P,F,T,Ht,o){
+  var pad=Math.max(2,Math.round((o.padf||0.2)*Ht));
+  var x0=Math.max(0,T.x0-pad), x1=Math.min(P.w-1,T.x1+pad), y0=Math.max(0,T.y0-pad), y1=Math.min(P.h-1,T.y1+pad);
+  var c=stretch(cropGray(F.clean,P.w,x0,y0,x1,y1)), i;
+  if (o.mode==='bin'){ var t=otsu(c.data), bd=new Uint8Array(c.data.length); for(i=0;i<bd.length;i++) bd[i]=c.data[i]<=t?0:255; c={data:bd,w:c.w,h:c.h}; }
+  var im=scaleToHeight(c,o.h);
+  if (o.mode==='sharp') im=sharpen(im);
+  var m=Math.round(o.h*0.4); return padImg(im,m,m,255);
+}
+
+/* ---------- reading ---------- */
+function cleanNum(t){
+  t=String(t||'').replace(/[^0-9.]/g,'').replace(/^\.+|\.+$/g,'');
+  var parts=t.split('.');
+  if (parts.length>2) t=parts[0]+'.'+parts.slice(1).join('');
+  return t;
+}
+function isNum(t){ return /^\d+(\.\d+)?$/.test(t); }
+
+async function readToken(P,F,T,Ht,ocr,first){
+  var heights=first?[48,96]:[64,48,96], reads=first?[{text:first.text,conf:first.conf}]:[], i, base=reads.length;
+  for (i=0;i<heights.length;i++){
+    var r=await ocr(tokenImage(P,F,T,Ht,{h:heights[i],mode:'gray'}),7);
+    reads.push({text:cleanNum(r.text),conf:r.conf||0});
+    if (reads.length===2 && reads[0].text && reads[0].text===reads[1].text && isNum(reads[0].text)) break;
+  }
+  if (!reads.some(function(r){ return r.text; })){
+    for (i=0;i<2;i++){
+      var r2=await ocr(tokenImage(P,F,T,Ht,{h:i?96:64,mode:'gray'}),10);
+      reads.push({text:cleanNum(r2.text),conf:r2.conf||0});
+    }
+  }
+  var votes={}, best=null;
+  reads.forEach(function(r){
+    if (!r.text) return;
+    var v=votes[r.text]||(votes[r.text]={text:r.text,n:0,conf:0}); v.n++; v.conf+=r.conf;
+  });
+  Object.keys(votes).forEach(function(k){
+    var v=votes[k]; if (!best||v.n>best.n||(v.n===best.n&&v.conf>best.conf)) best=v;
+  });
+  if (!best) return {text:'',conf:0,agree:0,reads:reads};
+  return {text:best.text,conf:best.conf/best.n,agree:best.n,reads:reads};
+}
+
+async function extract(gray,w,h,opts){
+  var ocr=opts.ocr, progress=opts.progress||function(){}, cancelled=opts.cancelled||function(){return false;};
+  var P=prepare(gray,w,h), F=findBands(P), total=0, done=0;
+  F.bands.forEach(function(B){ total+=B.tokens.length; });
+  var rows=[], all=[], bi, ti;
+  for (bi=0;bi<F.bands.length;bi++){
+    var B=F.bands[bi];
+    if (B.tokens.length<2){ continue; }
+    var first=[];
+    for (ti=0;ti<B.tokens.length;ti++){
+      if (cancelled()) return null;
+      var r0=await ocr(tokenImage(P,F,B.tokens[ti],B.Ht,{h:64,mode:'gray'}),7);
+      first.push({text:cleanNum(r0.text),conf:r0.conf||0});
+      progress(++done,total);
+    }
+    var okc=first.filter(function(t){ return isNum(t.text)&&t.conf>=50; }).length;
+    var entry={y0:B.y0,y1:B.y1,Ht:B.Ht,boxes:B.tokens,first:first,kept:false,tokens:null};
+    all.push(entry);
+    if (okc<Math.max(1,Math.ceil(0.34*B.tokens.length))) continue;
+    var toks=[];
+    for (ti=0;ti<B.tokens.length;ti++){
+      if (cancelled()) return null;
+      toks.push(await readToken(P,F,B.tokens[ti],B.Ht,ocr,first[ti]));
+    }
+    entry.kept=true; entry.tokens=toks;
+    rows.push({y0:B.y0,y1:B.y1,Ht:B.Ht,tokens:toks,boxes:B.tokens});
+  }
+  return {prep:P,found:F,rows:rows,all:all};
+}
+
+/* ---------- from tokens to coordinates ---------- */
+function isInt(s){ return /^\d+$/.test(s); }
+function validDMS(t){ return isInt(t[0])&&+t[0]<=180&&isInt(t[1])&&+t[1]<60&&+t[2]<60; }
+function validDM(t){ return isInt(t[0])&&+t[0]<=180&&+t[1]<60; }
+
+/* keep numeric rows, find the point-number column, return {name, vals:[...]} */
+function assemble(rows){
+  var cand=rows.filter(function(r){
+    var okc=r.tokens.filter(function(t){ return isNum(t.text); });
+    return okc.length>=2 && okc.length>=0.7*r.tokens.length &&
+      okc.reduce(function(s,t){ return s+t.conf; },0)/okc.length>=35;
+  });
+  if (!cand.length) return {rows:[],notes:['no numeric rows']};
+  var counts={}, m=0, best=0;
+  cand.forEach(function(r){ var c=r.tokens.length; counts[c]=(counts[c]||0)+1; });
+  Object.keys(counts).forEach(function(k){ if (counts[k]>best||(counts[k]===best&&+k>m)){ best=counts[k]; m=+k; } });
+  var notes=[], out=[];
+  function seqOK(get){
+    if (cand.length<2) return false;
+    var good=0; cand.forEach(function(r,i){ if (i&&isInt(get(r))&&isInt(get(cand[i-1]))&&+get(r)===+get(cand[i-1])+1) good++; });
+    return good>=cand.length-2 && good>=1;
+  }
+  var first=function(r){ return r.tokens[0].text; }, last=function(r){ return r.tokens[r.tokens.length-1].text; };
+  var seqFirst=seqOK(first), seqLast=seqOK(last), idPos=null;
+  if (seqFirst) idPos='first'; else if (seqLast) idPos='last';
+  else if ([3,5,7].indexOf(m)>=0) idPos='first';
+  cand.forEach(function(r,idx){
+    var texts=r.tokens.map(function(t){ return t.text; }), warn=[], name=null, vals;
+    var low=r.tokens.some(function(t,ti){ if ((idPos==='first'&&ti===0)||(idPos==='last'&&ti===r.tokens.length-1)) return false; return t.agree<2||t.conf<75; });
+    if (low) warn.push('conf');
+    if (idPos==='first'&&texts.length>1){ name=texts[0]||String(idx+1); vals=texts.slice(1); }
+    else if (idPos==='last'&&texts.length>1){ name=texts[texts.length-1]||String(idx+1); vals=texts.slice(0,-1); }
+    else { name=String(idx+1); vals=texts.slice(); }
+    if (texts.length!==m) warn.push('count');
+    out.push({name:name,vals:vals,warn:warn,src:r});
+  });
+  return {rows:out,notes:notes,idPos:idPos,modal:m};
+}
+
+var api={resizeGray:resizeGray,otsu:otsu,adaptiveBin:adaptiveBin,estimateSkew:estimateSkew,rotateGray:rotateGray,prepare:prepare,findBands:findBands,tokenVariants:tokenVariants,tokenImage:tokenImage,extract:extract,assemble:assemble,cleanNum:cleanNum,isNum:isNum,validDMS:validDMS,validDM:validDM};
+if (typeof module!=='undefined'&&module.exports) module.exports=api; else root.TableCore=api;
+})(typeof window!=='undefined'?window:this);
+
+</script>
+<script>
+/* DigitMatch: second, independent reader for numbers printed in ONE sans-serif font.
+   It slices a token at the font's fixed digit pitch (so touching / blurred digits still separate) and compares every
+   slice with glyphs rendered by the browser itself. Needs a canvas (browser). by eng. Mohamed Shaker */
+(function(root){
+var NH = 32, PAD = 3, CH = NH + 2 * PAD;
+var FONTS = [
+  {f:'Arial',w:'bold'}, {f:'Arial',w:'normal'}, {f:'Calibri',w:'normal'}, {f:'Calibri',w:'bold'}, {f:'Segoe UI',w:'normal'}, {f:'Segoe UI',w:'bold'},
+  {f:'Verdana',w:'normal'}, {f:'Verdana',w:'bold'}, {f:'Tahoma',w:'normal'}, {f:'Tahoma',w:'bold'}, {f:'Times New Roman',w:'normal'}, {f:'Times New Roman',w:'bold'},
+  {f:'Courier New',w:'normal'}, {f:'Roboto',w:'normal'}, {f:'Helvetica',w:'normal'}, {f:'sans-serif',w:'normal'}, {f:'sans-serif',w:'bold'}
+];
+var CHARS = '0123456789.';
+var models = {}, LOC = 0, CFG = {tb:1, kb:1, metric:'ncc'};
+
+function blurN(d, w, h, n){ var o = d; while (n-- > 0) o = blur121(o, w, h); return o; }
+function blur121(d, w, h){
+  var t = new Float32Array(d.length), o = new Float32Array(d.length), x, y, i;
+  for (y = 0; y < h; y++) for (x = 0; x < w; x++) { i = y * w + x; t[i] = (d[y*w + Math.max(0,x-1)] + 2 * d[i] + d[y*w + Math.min(w-1,x+1)]) / 4; }
+  for (y = 0; y < h; y++) for (x = 0; x < w; x++) { i = y * w + x; o[i] = (t[Math.max(0,y-1)*w + x] + 2 * t[i] + t[Math.min(h-1,y+1)*w + x]) / 4; }
+  return o;
+}
+function buildFont(spec){
+  var key = spec.f + '|' + spec.w; if (models[key]) return models[key];
+  var c = document.createElement('canvas'); c.width = 400; c.height = 300; var g = c.getContext('2d');
+  g.font = spec.w + ' 100px "' + spec.f + '", sans-serif'; g.textBaseline = 'alphabetic';
+  var m = g.measureText('0123456789'), inkH = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+  if (!(inkH > 10)) return (models[key] = null);
+  var size = 100 * NH / inkH, asc = m.actualBoundingBoxAscent * size / 100;
+  g.font = spec.w + ' ' + size + 'px "' + spec.f + '", sans-serif';
+  var model = {key:key, glyph:{}, lsb:0, rsb:0, ad:g.measureText('0').width, adot:g.measureText('.').width}, ls = 0, rs = 0, i;
+  CHARS.split('').forEach(function(ch){
+    var adv = g.measureText(ch).width, wd = Math.max(3, Math.round(adv) + 6), cv = document.createElement('canvas'); cv.width = wd; cv.height = CH;
+    var q = cv.getContext('2d'); q.fillStyle = '#fff'; q.fillRect(0, 0, wd, CH); q.fillStyle = '#000';
+    q.font = g.font; q.textBaseline = 'alphabetic'; q.fillText(ch, 3, PAD + asc);
+    var px = q.getImageData(0, 0, wd, CH).data, d = new Float32Array(wd * CH), x, y, l = -1, r = -1;
+    for (i = 0; i < d.length; i++) d[i] = 1 - px[4*i] / 255;
+    for (x = 0; x < wd; x++) { var s = 0; for (y = 0; y < CH; y++) s += d[y*wd + x]; if (s > 0.8) { if (l < 0) l = x; r = x; } }
+    /* keep exactly the advance box: starts at x=3 (the pen position) */
+    var adv0 = Math.round(adv), cell = new Float32Array(adv0 * CH);
+    for (y = 0; y < CH; y++) for (x = 0; x < adv0; x++) cell[y*adv0 + x] = d[y*wd + x + 3];
+    model.glyph[ch] = {w:adv0, data:blurN(cell, adv0, CH, CFG.tb), adv:adv, raw:cell};
+    if (/\d/.test(ch)) { ls += (l - 3); rs += (3 + adv - 1 - r); }
+  });
+  model.lsb = ls / 10; model.rsb = rs / 10;
+  var sg = 0; ['5','8','3'].forEach(function(ch){ model.glyph[ch].raw.forEach(function(v, i){ sg += v * ((i % 7) + 1); }); }); model.sig = Math.round(sg * 10);
+  return (models[key] = model);
+}
+
+/* resample a glyph template horizontally to width w */
+function glyphAt(model, ch, w){
+  var k = ch + '|' + w; model._c = model._c || {};
+  if (model._c[k]) return model._c[k];
+  var gl = model.glyph[ch], out = new Float32Array(w * CH), x, y;
+  for (x = 0; x < w; x++) {
+    var sx = (x + 0.5) * gl.w / w - 0.5, x0 = Math.max(0, Math.min(gl.w - 1, Math.floor(sx))), x1 = Math.min(gl.w - 1, x0 + 1), f = Math.max(0, Math.min(1, sx - x0));
+    for (y = 0; y < CH; y++) out[y*w + x] = gl.data[y*gl.w + x0] * (1 - f) + gl.data[y*gl.w + x1] * f;
+  }
+  return (model._c[k] = out);
+}
+
+/* token image (dark text on light, any size) -> normalised darkness map with the digit height = NH */
+function normalise(img){
+  var w = img.w, h = img.h, d = img.data, n = w * h, i, hist = new Float64Array(256), t, sum = 0;
+  for (i = 0; i < n; i++) hist[d[i]]++;
+  var tot = n, sB = 0, wB = 0, best = -1, thr = 128, sAll = 0;
+  for (i = 0; i < 256; i++) sAll += i * hist[i];
+  for (i = 0; i < 256; i++) { wB += hist[i]; if (!wB) continue; var wF = tot - wB; if (!wF) break; sB += i * hist[i]; var mB = sB / wB, mF = (sAll - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF); if (v > best) { best = v; thr = i; } }
+  var fg = 0, nf = 0, bg = 0, nb = 0;
+  for (i = 0; i < n; i++) if (d[i] <= thr) { fg += d[i]; nf++; } else { bg += d[i]; nb++; }
+  if (!nf || !nb) return null;
+  fg /= nf; bg /= nb; if (bg - fg < 40) return null;
+  var dk = new Float32Array(n);
+  for (i = 0; i < n; i++) dk[i] = Math.max(0, Math.min(1, (bg - d[i]) / (bg - fg)));
+  /* ink bbox: rows / columns holding real ink (ignore specks) */
+  var rs = new Float32Array(h), cs = new Float32Array(w), x, y;
+  for (y = 0; y < h; y++) for (x = 0; x < w; x++) { var q = dk[y*w + x] > 0.5 ? 1 : 0; rs[y] += q; cs[x] += q; }
+  var y0 = -1, y1 = -1, x0 = -1, x1 = -1, mr = 0, runs = [], cur = null, gap = 0;
+  for (y = 0; y < h; y++) if (rs[y] > mr) mr = rs[y];
+  for (y = 0; y < h; y++) {                       /* main text rows = the heaviest run (drops table-line leftovers) */
+    if (rs[y] >= Math.max(2, mr * 0.2)) { if (!cur) cur = {a:y, b:y, s:0}; cur.b = y; cur.s += rs[y]; gap = 0; }
+    else if (cur && ++gap > 2) { runs.push(cur); cur = null; gap = 0; }
+  }
+  if (cur) runs.push(cur);
+  if (!runs.length) return null;
+  runs.sort(function(a, b){ return b.s - a.s; }); y0 = runs[0].a; y1 = runs[0].b;
+  for (y = 0; y < h; y++) if (y < y0 || y > y1) { for (x = 0; x < w; x++) dk[y*w + x] = 0; }
+  for (y = y0; y <= y1; y++) for (x = 0; x < w; x++) if (dk[y*w + x] > 0.5 && !(cs[x] >= 0)) cs[x] = 0;
+  cs.fill(0); for (y = y0; y <= y1; y++) for (x = 0; x < w; x++) if (dk[y*w + x] > 0.5) cs[x]++;
+  for (x = 0; x < w; x++) if (cs[x] >= 2) { if (x0 < 0) x0 = x; x1 = x; }
+  if (x0 < 0 || y1 - y0 < 6) return null;
+  var sc = NH / (y1 - y0 + 1), nw = Math.max(4, Math.round((x1 - x0 + 1 + 2 * 6) * sc)), out = new Float32Array(nw * CH), ox = x0 - 6, oy = y0 - PAD / sc;
+  for (y = 0; y < CH; y++) for (x = 0; x < nw; x++) {
+    var sx2 = ox + (x + 0.5) / sc - 0.5, sy2 = oy + (y + 0.5) / sc - 0.5;
+    var xa = Math.floor(sx2), ya = Math.floor(sy2), fx = sx2 - xa, fy = sy2 - ya;
+    function at(px, py){ return (px < 0 || py < 0 || px >= w || py >= h) ? 0 : dk[py*w + px]; }
+    /* average over the footprint (sc < 1 means shrinking) for a smoother result */
+    var v2 = at(xa, ya) * (1 - fx) * (1 - fy) + at(xa+1, ya) * fx * (1 - fy) + at(xa, ya+1) * (1 - fx) * fy + at(xa+1, ya+1) * fx * fy;
+    if (sc < 0.75) { var v3 = 0, a, b, cnt = 0; for (a = -1; a <= 1; a++) for (b = -1; b <= 1; b++) { v3 += at(Math.round(sx2) + a, Math.round(sy2) + b); cnt++; } v2 = (v2 + v3 / cnt) / 2; }
+    out[y*nw + x] = v2;
+  }
+  return {d:blurN(out, nw, CH, CFG.kb), w:nw, L:6 * sc, R:nw - 6 * sc, ink:(x1 - x0 + 1) * sc};
+}
+
+function sim(D, dw, xs, gl, gw){
+  var a2 = 0, b2 = 0, s = 0, ab = 0, sa = 0, sb = 0, x, y, xx, av, bv, n = gw * CH;
+  for (y = 0; y < CH; y++) for (x = 0; x < gw; x++) {
+    xx = xs + x; av = (xx >= 0 && xx < dw) ? D[y*dw + xx] : 0; bv = gl[y*gw + x];
+    s += (av - bv) * (av - bv); a2 += av * av; b2 += bv * bv; ab += av * bv; sa += av; sb += bv;
+  }
+  if (CFG.metric === 'ncc') { var va = a2 - sa * sa / n, vb = b2 - sb * sb / n; return (ab - sa * sb / n) / Math.sqrt(va * vb + 1e-6); }
+  return 1 - s / (a2 + b2 + 1e-6);
+}
+function readWith(model, N, fmt){
+  var best = null, ink = N.R - N.L, n, k, sh;
+  var cum = function(cnt, hasDot, dotAt){ return cnt * model.ad + (hasDot ? model.adot : 0); };
+  for (n = 1; n <= 12; n++) for (k = 0; k <= n; k++) {          /* k = digits before the dot; k==n means no dot, k==0 means ".5" (skipped) */
+    if (k === 0) continue;
+    if (fmt && (n !== fmt.n || k !== fmt.k)) continue;
+    var hasDot = k < n, total = (hasDot ? (n - 0) * model.ad + model.adot : n * model.ad);
+    var pred = total - model.lsb - model.rsb, sx = ink / pred;
+    if (sx < 0.82 || sx > 1.22) continue;
+    for (sh = -2; sh <= 2; sh++) {
+      var x0 = N.L - model.lsb * sx + sh, pos = x0, bounds = [], i, text = '', score = 0, cntS = 0, marg = [], seq = [], sl = [];
+      for (i = 0; i < n + (hasDot ? 1 : 0); i++) {
+        var isDot = hasDot && i === k, adv = isDot ? model.adot : model.ad;
+        var b0 = Math.round(pos), b1 = Math.round(pos + adv * sx); if (b1 - b0 < 2) b1 = b0 + 2;
+        pos += adv * sx;
+        if (isDot) { var gd = glyphAt(model, '.', b1 - b0), sd = sim(N.d, N.w, b0, gd, b1 - b0); score += sd * 0.6; cntS += 0.6; text += '.'; marg.push(1); sl.push([b0, b1, '.']); continue; }
+        var bs = -1, b2 = -1, bc = '?', c, gw = b1 - b0;
+        for (c = 0; c < 10; c++) { var sv = -1, dd, gg = glyphAt(model, String(c), gw); for (dd = -LOC; dd <= LOC; dd++) { var s1 = sim(N.d, N.w, b0 + dd, gg, gw) - 0.004 * Math.abs(dd); if (s1 > sv) sv = s1; } if (sv > bs) { b2 = bs; bs = sv; bc = String(c); } else if (sv > b2) b2 = sv; }
+        score += bs; cntS += 1; text += bc; marg.push(bs - b2); sl.push([b0, b1, bc]);
+      }
+      score /= cntS;
+      if (!best || score > best.score) best = {text:text, score:score, marg:marg, n:n, k:k, sx:sx, sl:sl};
+    }
+  }
+  return best;
+}
+
+/* read a token image {data,w,h} (dark text on light). model optional: a font model or null = try all */
+function read(img, model, fmt){
+  var N = normalise(img); if (!N) return null;
+  if (model) { var r = readWith(model, N, fmt); if (r) r.font = model.key; return r; }
+  var res = null;
+  FONTS.forEach(function(sp){ var m = buildFont(sp); if (!m) return; var r2 = readWith(m, N); if (r2 && (!res || r2.score > res.score)) { res = r2; res.font = m.key; } });
+  return res;
+}
+/* pick the font that explains a few tokens best */
+function pickFont(imgs){
+  var tot = {}, any = false;
+  var seenSig = {};
+  imgs.forEach(function(im){
+    var N = normalise(im); if (!N) return;
+    FONTS.forEach(function(sp){ var m = buildFont(sp); if (!m) return; if (seenSig[m.sig] && seenSig[m.sig] !== m.key) return; seenSig[m.sig] = m.key; var r = readWith(m, N); if (r) { tot[m.key] = (tot[m.key] || 0) + r.score; any = true; } });
+  });
+  if (!any) return null;
+  var bk = null; Object.keys(tot).forEach(function(k){ if (bk === null || tot[k] > tot[bk]) bk = k; });
+  return {model:models[bk], score:tot[bk] / imgs.length, key:bk};
+}
+
+
+/* ---- learn the table's own digit shapes from its confidently read numbers (leave-one-out) ----
+   items: [{img, text}] -> array of readings (same order; null when not usable) */
+function calibratedReads(model, items){
+  var prepd = items.map(function(it){
+    var N = normalise(it.img); if (!N) return null;
+    if (!it.label) return {N:N, samples:{}};
+    var dot = it.text.indexOf('.'), fmt = dot < 0 ? {n:it.text.length, k:it.text.length} : {n:it.text.length - 1, k:dot};
+    var r = readWith(model, N, fmt); if (!r || r.text.length !== it.text.length) return {N:N, samples:{}};
+    var samples = {}, i;
+    for (i = 0; i < r.sl.length; i++) {
+      var ch = it.text.charAt(i); if (ch === '.' || !/\d/.test(ch)) continue;
+      var sc = r.sl[i], gw = model.glyph[ch].w, win = new Float32Array(gw * CH), bw = Math.max(2, sc[1] - sc[0]), x, y;
+      for (x = 0; x < gw; x++) {
+        var sx = sc[0] + (x + 0.5) * bw / gw - 0.5, xa = Math.floor(sx), f = sx - xa;
+        for (y = 0; y < CH; y++) { var a = (xa >= 0 && xa < N.w) ? N.d[y*N.w + xa] : 0, b = (xa + 1 >= 0 && xa + 1 < N.w) ? N.d[y*N.w + xa + 1] : 0; win[y*gw + x] = a * (1 - f) + b * f; }
+      }
+      (samples[ch] = samples[ch] || []).push(win);
+    }
+    return {N:N, samples:samples};
+  });
+  var sum = {}, cnt = {};
+  prepd.forEach(function(p){ if (!p) return; Object.keys(p.samples).forEach(function(c){ p.samples[c].forEach(function(w){
+    var a = sum[c] || (sum[c] = new Float32Array(w.length)); for (var i = 0; i < w.length; i++) a[i] += w[i]; cnt[c] = (cnt[c] || 0) + 1; }); }); });
+  return prepd.map(function(p, idx){
+    if (!p) return null;
+    var m2 = Object.create(model); m2.glyph = {}; m2._c = {}; var used = 0;
+    Object.keys(model.glyph).forEach(function(c){
+      var g = model.glyph[c], own = p.samples[c] || [], n = (cnt[c] || 0) - own.length;
+      if (!/\d/.test(c) || n < 1) { m2.glyph[c] = g; return; }
+      var d = new Float32Array(g.w * CH), i;
+      for (i = 0; i < d.length; i++) { var t = sum[c][i]; own.forEach(function(w){ t -= w[i]; }); d[i] = t / n; }
+      m2.glyph[c] = {w:g.w, data:d, adv:g.adv}; used++;
+    });
+    if (used < 3) return null;
+    var r = readWith(m2, p.N); if (r) r.cal = used;
+    return r;
+  });
+}
+
+/* ---- combine the OCR engine's reading (T) with the font-matching reading (M) ----
+   bands: [{kept, tokens:[{text,conf,agree}] (kept) , first:[{text,conf}]}], getImg(bi,ti) -> {data,w,h}
+   returns {fontKey, fontScore, bands:[{bi, tokens:[{text,conf,agree,t,m,ms}], rescued}]} or null when the matcher cannot be trusted */
+function isNumS(t){ return /^\d+(\.\d+)?$/.test(t); }
+function fuse(bands, getImg, opt){
+  opt = opt || {};
+  var cands = [], seen = {}, pass, bi, ti;
+  for (pass = 0; pass < 2 && cands.length < 3; pass++) bands.forEach(function(B, bi){
+    var arr = B.kept ? B.tokens : B.first;
+    arr.forEach(function(t, ti){ if (cands.length < 3 && /^\d+\.\d{2,}$/.test(t.text) && t.conf >= (pass ? 60 : 85) && !seen[bi + '_' + ti]) { seen[bi + '_' + ti] = 1; cands.push(getImg(bi, ti)); } });
+  });
+  if (!cands.length) return null;
+  var pf = pickFont(cands); if (!pf || pf.score < 0.62) return null;
+  var calItems = [], calIdx = {};
+  bands.forEach(function(B, bi){ (B.kept ? B.tokens : B.first).forEach(function(t, ti){
+    var im = getImg(bi, ti); if (!im) return;
+    var lab = /^\d+(\.\d+)?$/.test(t.text) && (t.conf >= 80 || ((t.agree || 1) >= 2 && t.conf >= 70));
+    calIdx[bi + '_' + ti] = calItems.length; calItems.push({img:im, text:t.text, label:lab});
+  }); });
+  var calRes = calItems.filter(function(c){ return c.label; }).length >= 1 ? calibratedReads(pf.model, calItems) : [];
+  var out = [], cnt = {}, prior = {};
+  bands.forEach(function(B, bi){ (B.kept ? B.tokens : B.first).forEach(function(t, ti){
+    if (!/^\d+\.\d+$/.test(t.text) || t.conf < 70) return;
+    var p = t.text.indexOf('.'), key = ti + ':' + (t.text.length - 1) + ':' + p;
+    cnt[key] = (cnt[key] || 0) + 1;
+  }); });
+  Object.keys(cnt).forEach(function(key){ var a = key.split(':'), ti = +a[0]; if (cnt[key] >= 2 && (!prior[ti] || cnt[key] > prior[ti].c)) prior[ti] = {n:+a[1], k:+a[2], c:cnt[key]}; });
+  bands.forEach(function(B, bi){
+    var arr = B.kept ? B.tokens : B.first, res = arr.map(function(t, ti){
+      var im = getImg(bi, ti), r = im ? read(im, pf.model) : null, T = t.text || '', conf = t.conf || 0;
+      if (r && prior[ti] && (r.n !== prior[ti].n || r.k !== prior[ti].k)) { var r2 = read(im, pf.model, prior[ti]); if (r2 && r2.score >= r.score - 0.06) r = r2; }
+      var ci = calIdx[bi + '_' + ti], cr = (ci !== undefined) ? calRes[ci] : null;
+      if (cr && cr.score >= 0.72 && isNumS(cr.text)) r = cr;
+      return {t:T, tc:conf, ta:t.agree || 1, m:r ? r.text : '', ms:r ? r.score : 0, mm:r ? Math.min.apply(null, r.marg) : 0};
+    });
+    if (!B.kept) {
+      var good = res.filter(function(x){ return isNumS(x.m) && x.ms >= 0.72; }).length;
+      if (good < Math.max(2, Math.ceil(0.7 * res.length))) return;
+      out.push({bi:bi, rescued:true, tokens:res.map(function(x){ var ok = isNumS(x.m) && x.ms >= 0.72; return {text:ok ? x.m : '', conf:ok ? 55 : 0, agree:1, t:x.t, m:x.m, ms:x.ms}; })});
+      return;
+    }
+    out.push({bi:bi, rescued:false, tokens:res.map(function(x){
+      var text = x.t, conf = x.tc, agree = x.ta, mok = isNumS(x.m) && x.ms >= 0.7, tok = isNumS(x.t);
+      if (mok && tok && x.m === x.t) { conf = Math.max(conf, 90); agree = Math.max(agree, 2); }
+      else if (mok && (!tok || x.tc < 80 || (x.ta < 2 && x.ms >= 0.85))) { text = x.m; conf = 55; agree = 1; }
+      else if (!tok && isNumS(x.m) && x.ms >= 0.6) { text = x.m; conf = 40; agree = 1; }
+      else if (mok && tok) { conf = Math.min(conf, 70); agree = 1; }       /* confident engine but disagreement: keep T, flag */
+      return {text:text, conf:conf, agree:agree, t:x.t, m:x.m, ms:x.ms};
+    })});
+  });
+  return {fontKey:pf.key, fontScore:pf.score, bands:out};
+}
+root.DigitMatch = {calibratedReads:calibratedReads, fuse:fuse, CFG:CFG, read:read, pickFont:pickFont, buildFont:buildFont, FONTS:FONTS};
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+(function(){
+  var $ = function(s){ return document.querySelector(s); };
+
+  /* ---------- coordinate systems ---------- */
+  var TM = function(lon0,x0,y0,ell,shift){
+    return '+proj=tmerc +lat_0=30 +lon_0='+lon0+' +k=1 +x_0='+x0+' +y_0='+y0+' +ellps='+ell+(shift?' +towgs84=-130,110,-13':'')+' +units=m +no_defs';
+  };
+  var SYSTEMS = {
+    auto:       {label:'تلقائي (يكتشف درجات WGS84 أو الحزام الأحمر أو UTM)', auto:true},
+    redbelt:    {label:'مصر، الحزام الأحمر (Egypt 1907 / Red Belt، EPSG:22992)', def:TM(31,615000,810000,'helmert',true)},
+    redbelt_wgs:{label:'الحزام الأحمر على إهليلج WGS84 (بدون إزاحة datum)', def:TM(31,615000,810000,'WGS84',false)},
+    blue:       {label:'مصر، الحزام الأزرق (Egypt 1907 / Blue Belt، EPSG:22991)', def:TM(35,300000,1100000,'helmert',true)},
+    purple:     {label:'مصر، الحزام البنفسجي (Egypt 1907 / Purple Belt، EPSG:22993)', def:TM(27,700000,200000,'helmert',true)},
+    utm36:      {label:'WGS84 / UTM منطقة 36 شمال', def:'+proj=utm +zone=36 +datum=WGS84 +units=m +no_defs'},
+    utm35:      {label:'WGS84 / UTM منطقة 35 شمال', def:'+proj=utm +zone=35 +datum=WGS84 +units=m +no_defs'},
+    geo:        {label:'WGS84 درجات (عشرية أو درجات ودقائق وثوانٍ)', geo:true}
+  };
+  var sysSel = $('#sys');
+  Object.keys(SYSTEMS).forEach(function(k){
+    var o = document.createElement('option'); o.value = k; o.textContent = SYSTEMS[k].label; sysSel.appendChild(o);
+  });
+  sysSel.value = 'auto';
+
+  function normDigits(s){
+    return String(s)
+      .replace(/[٠-٩]/g, function(d){ return d.charCodeAt(0)-1632; })
+      .replace(/[۰-۹]/g, function(d){ return d.charCodeAt(0)-1776; })
+      .replace(/٫/g,'.').replace(/٬/g,'').replace(/،/g,',')
+      .replace(/[−–]/g,'-');
+  }
+  function norm(s){ return normDigits(s).replace(/["'“”‘’′″°]/g,''); }
+  function hemi(v, h){ return (h === 'S' || h === 'W') ? -v : v; }
+  function dmsToDec(line){
+    return String(line)
+      .replace(/(\d{1,3})\s*[°º˚]\s*(\d{1,2})\s*['′’]\s*(\d{1,2}(?:\.\d+)?)\s*(?:"|″|”|''|′′)?\s*([NSEW])?/gi,
+        function(m,d,mi,se,h){ var v = +d + (+mi)/60 + (+se)/3600; return hemi(v,(h||'').toUpperCase()).toFixed(8) + ' '; })
+      .replace(/(\d{1,3})\s*[°º˚]\s*(\d{1,2}(?:\.\d+)?)\s*['′’]\s*([NSEW])?/gi,
+        function(m,d,mi,h){ var v = +d + (+mi)/60; return hemi(v,(h||'').toUpperCase()).toFixed(8) + ' '; })
+      .replace(/(^|[^\d.])(\d{1,3})\s+(\d{1,2})\s+(\d{1,2}(?:\.\d+)?)\s*([NSEW])\b/g,
+        function(m,pre,d,mi,se,h){ var v = +d + (+mi)/60 + (+se)/3600; return pre + hemi(v,h).toFixed(8) + ' '; })
+      .replace(/(^|[^\d.])(\d{1,3})\s+(\d{1,2}(?:\.\d+)?)\s*['′’]\s*([NSEW])\b/g,
+        function(m,pre,d,mi,h){ var v = +d + (+mi)/60; return pre + hemi(v,h).toFixed(8) + ' '; })
+      .replace(/(^|[^\d.])(\d{1,3}\.\d+)\s*[°º˚]?\s*([NSEW])\b/g,
+        function(m,pre,v,h){ return pre + hemi(+v,h).toFixed(8) + ' '; });
+  }
+  function fixNum(t){
+    if (/^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) return t.replace(/,/g,'');
+    if (/^[+-]?\d+,\d+$/.test(t)) return t.replace(',','.');
+    return t;
+  }
+
+  /* ---------- parsing ---------- */
+  function splitLine(line){
+    line = norm(dmsToDec(normDigits(line))).trim();
+    if (!line) return [];
+    if (/[\t;|]/.test(line)) return line.split(/[\t;|]+/).map(function(s){return fixNum(s.trim());}).filter(Boolean);
+    var ws = line.split(/\s+/).filter(Boolean);
+    if (ws.filter(function(t){ return /^[+-]?\d+,\d+$/.test(t); }).length >= 2) return ws.map(fixNum);
+    return line.split(/[\s,]+/).filter(Boolean);
+  }
+  function isIntS(s){ return /^[+-]?\d+$/.test(s); }
+  function okD(t){ return isIntS(t.raw) && Math.abs(t.v) <= 180; }
+  function okDMS(t){ return okD(t[0]) && isIntS(t[1].raw) && t[1].v >= 0 && t[1].v < 60 && t[2].v >= 0 && t[2].v < 60; }
+  function okDM(t){ return okD(t[0]) && t[1].v >= 0 && t[1].v < 60; }
+  function rowFromTokens(tokens, geo){
+    var nums = [], names = [];
+    tokens.forEach(function(t){
+      t = String(t).trim();
+      if (/^[+-]?(\d+\.?\d*|\.\d+)$/.test(t)) nums.push({v:parseFloat(t), isInt:!/\./.test(t), raw:t});
+      else if (t) names.push(t);
+    });
+    var n = nums.length;
+    if (n < 2) return null;
+    var bigs = nums.filter(function(q){ return Math.abs(q.v) >= 1000; });
+    if (geo === 'auto') geo = bigs.length < 2;
+    var raws = nums.map(function(q){ return q.raw; }), name = names.length ? names[0] : null, vals;
+    if (!geo) {
+      if (bigs.length >= 2) {
+        vals = [bigs[0].raw, bigs[1].raw];
+        if (!name) { var other = nums.filter(function(q){ return bigs.indexOf(q) < 0; })[0]; if (other) name = other.raw; }
+      } else vals = [raws[n-2], raws[n-1]];
+    }
+    else if (n === 7 && nums[0].isInt && okDMS(nums.slice(1,4)) && okDMS(nums.slice(4,7))) { name = name || raws[0]; vals = raws.slice(1,7); }
+    else if (n === 6 && okDMS(nums.slice(0,3)) && okDMS(nums.slice(3,6))) vals = raws.slice(0,6);
+    else if (n === 5 && nums[0].isInt && okDM(nums.slice(1,3)) && okDM(nums.slice(3,5))) { name = name || raws[0]; vals = raws.slice(1,5); }
+    else if (n === 4 && okDM(nums.slice(0,2)) && okDM(nums.slice(2,4))) vals = raws.slice(0,4);
+    else if (n >= 3 && nums[0].isInt) { name = name || raws[0]; vals = [raws[1], raws[2]]; }
+    else vals = [raws[0], raws[1]];
+    return {name:name, vals:vals.join(' ')};
+  }
+  function parseTokenRows(list, geo){
+    var out = [];
+    list.forEach(function(tokens){
+      var r = rowFromTokens(tokens, geo);
+      if (r) { r.name = r.name || String(out.length+1); out.push(r); }
+    });
+    return out;
+  }
+  function parseText(text, geo){
+    return parseTokenRows(String(text).split(/\r?\n/).map(splitLine), geo);
+  }
+
+  /* ---------- from the "values" text to decimal coordinates ---------- */
+  function parseVals(str){
+    var t = norm(dmsToDec(normDigits(str))).trim();
+    if (!t) return null;
+    var parts = (/[\t;|]/.test(t) ? t.split(/[\t;|\s]+/) : t.split(/[\s,]+/)).filter(Boolean).map(fixNum), out = [], i;
+    for (i = 0; i < parts.length; i++) {
+      if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(parts[i])) return null;
+      out.push({v:parseFloat(parts[i]), raw:parts[i]});
+    }
+    return out.length ? out : null;
+  }
+  function toDecimal(t, three){
+    var ok = three ? okDMS : okDM, u = t, iss = [];
+    if (!ok(u)) { var r = u.slice().reverse(); if (ok(r)) u = r; }
+    if (!ok(u)) iss.push('bad_dms');
+    var sg = u[0].raw.charAt(0) === '-' ? -1 : 1;
+    return {v: sg * (Math.abs(u[0].v) + u[1].v/60 + (three ? u[2].v/3600 : 0)), iss: iss};
+  }
+  function combineNums(n){
+    if (n.length === 2) return {ab:[n[0].v, n[1].v], issues:[]};
+    if (n.length === 4) { var a4 = toDecimal(n.slice(0,2), false), b4 = toDecimal(n.slice(2), false); return {ab:[a4.v, b4.v], issues:a4.iss.concat(b4.iss)}; }
+    if (n.length === 6) { var a6 = toDecimal(n.slice(0,3), true), b6 = toDecimal(n.slice(3), true); return {ab:[a6.v, b6.v], issues:a6.iss.concat(b6.iss)}; }
+    return null;
+  }
+  function rowAB(r){
+    if (r._k !== r.vals) { r._k = r.vals; var p = parseVals(r.vals); r._n = p; r._c = p ? combineNums(p) : null; }
+    return r._c;
+  }
+
+  /* ---------- state ---------- */
+  var state = {rows:[], hintSwap:false, isExample:true, srcNote:''};
+  var currentSys = function(){ return SYSTEMS[sysSel.value]; };
+  function geoFlag(){ var c = currentSys(); return c.auto ? 'auto' : !!c.geo; }
+
+  function msg(el, text, kind){ el.textContent = text || ''; el.className = 'msg' + (kind ? ' '+kind : ''); }
+  var msgEl = $('#msg'), outEl = $('#outmsg');
+
+  /* ---------- conversion ---------- */
+  var cache = {};
+  function converter(sys){ if (!cache[sys.def]) cache[sys.def] = proj4(sys.def); return cache[sys.def]; }
+  function convert(sys, a, b, swap){
+    var x = swap ? b : a, y = swap ? a : b, lon, lat;
+    try {
+      if (sys.geo) { lon = x; lat = y; }
+      else { var r = converter(sys).inverse([x, y]); lon = r[0]; lat = r[1]; }
+    } catch(e) { return null; }
+    if (!isFinite(lon) || !isFinite(lat) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+    return {lat:lat, lon:lon};
+  }
+  function inEgypt(c){ return c && c.lat >= 21.5 && c.lat <= 32.5 && c.lon >= 24 && c.lon <= 37; }
+  /* coarse outline of Egypt's land area (lon, lat), used to tell lat/lon order apart */
+  var EG = [[25.0,31.65],[27.2,31.4],[29.0,30.9],[30.0,31.3],[31.5,31.6],[32.3,31.3],[34.3,31.3],[34.9,29.5],[34.25,27.75],[33.8,27.25],[34.9,25.0],[35.5,23.9],[36.9,22.0],[25.0,22.0]];
+  function inPoly(c){
+    var inside = false, i, j;
+    for (i = 0, j = EG.length - 1; i < EG.length; j = i++) {
+      var xi = EG[i][0], yi = EG[i][1], xj = EG[j][0], yj = EG[j][1];
+      if (((yi > c.lat) !== (yj > c.lat)) && (c.lon < (xj - xi) * (c.lat - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  function egyptScore(c){ return !c ? 0 : (inPoly(c) ? 2 : (inEgypt(c) ? 1 : 0)); }
+  var ORDER = ['geo','redbelt','utm36','utm35','blue','purple'];
+  function evalSys(sys, swap){
+    var score = 0, res = state.rows.map(function(r){
+      var q = rowAB(r); if (!q) return null;
+      var c = convert(sys, q.ab[0], q.ab[1], swap); score += egyptScore(c); return c;
+    });
+    return {res:res, swap:swap, score:score, sys:sys};
+  }
+  function compute(){
+    var sel = currentSys(), mode = $('#order').value, rows = state.rows;
+    var swaps = mode === 'xy' ? [false] : mode === 'yx' ? [true] : (state.hintSwap ? [true,false] : [false,true]);
+    var keys = sel.auto ? ORDER : [sysSel.value], best = null;
+    keys.forEach(function(k){ swaps.forEach(function(sw){ var r = evalSys(SYSTEMS[k], sw); if (!best || r.score > best.score) best = r; }); });
+    if (mode === 'auto' && rows.length > 1) { var opp = evalSys(best.sys, !best.swap); best.ambiguous = opp.score >= best.score && best.score > 0; }
+    if (sel.auto && best.score === 0 && rows.length) {
+      var small = rows.every(function(r){ var q = rowAB(r); return q && Math.abs(q.ab[0]) <= 180 && Math.abs(q.ab[1]) <= 180; });
+      best = evalSys(SYSTEMS[small ? 'geo' : 'redbelt'], swaps[0]);
+    }
+    return best;
+  }
+
+  /* ---------- render ---------- */
+  function fmt(v, d){ return v.toFixed(d); }
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  var lastPick = null;
+
+  function median(a){ if (!a.length) return 0; var b = a.slice().sort(function(p,q){ return p-q; }); return b[b.length>>1]; }
+  function decimalsOf(raw){ var p = raw.indexOf('.'); return p < 0 ? 0 : raw.length - p - 1; }
+  /* reasons to double-check a row, besides what the reader itself was unsure about */
+  function reviewFlags(pick){
+    var flags = state.rows.map(function(){ return []; }), idx = [];
+    pick.res.forEach(function(c,k){ if (c) idx.push(k); });
+    if (idx.length >= 3) {
+      var mLat = median(idx.map(function(k){ return pick.res[k].lat; })), mLon = median(idx.map(function(k){ return pick.res[k].lon; }));
+      var cl = Math.cos(mLat * Math.PI / 180);
+      var dev = idx.map(function(k){ return Math.max(Math.abs(pick.res[k].lat - mLat), Math.abs(pick.res[k].lon - mLon) * cl); });
+      var thr = Math.max(0.004, 6 * median(dev)), cnt = 0;
+      dev.forEach(function(d){ if (d > thr) cnt++; });
+      if (cnt <= idx.length / 2) dev.forEach(function(d,j){ if (d > thr) flags[idx[j]].push('بعيدة عن باقي النقاط'); });
+    }
+    var dec = [];
+    state.rows.forEach(function(r){ rowAB(r); if (r._n && r._n.length === 2) r._n.forEach(function(t){ dec.push(decimalsOf(t.raw)); }); });
+    if (dec.length >= 4) {
+      var cn = {}, mode = 0, best = 0;
+      dec.forEach(function(d){ cn[d] = (cn[d] || 0) + 1; });
+      Object.keys(cn).forEach(function(k){ if (cn[k] > best) { best = cn[k]; mode = +k; } });
+      if (mode >= 3 && best >= dec.length / 2) state.rows.forEach(function(r,k){
+        if (r._n && r._n.length === 2 && r._n.some(function(t){ return decimalsOf(t.raw) < mode; })) flags[k].push('خانات عشرية أقل من باقي القيم');
+      });
+    }
+    state.rows.forEach(function(r,k){
+      if (r.warn && r.warn.indexOf('conf') >= 0) flags[k].push('قراءة الصورة غير مؤكدة');
+      if (r.warn && r.warn.indexOf('count') >= 0) flags[k].push('عدد القيم يختلف عن باقي الصفوف');
+    });
+    return flags;
+  }
+
+  function render(){
+    var pick = compute(), sys = pick.sys; lastPick = pick;
+    $('#projdef').textContent = sys.geo ? 'WGS84 EPSG:4326 (لا يلزم تحويل)' : sys.def;
+    $('#exBadge').hidden = !state.isExample;
+    $('#vertsWrap').hidden = ($('#mode').value === 'pts');
+    var flags = reviewFlags(pick), hasImg = state.rows.some(function(r){ return !!r.img; });
+    $('#thImg').hidden = !hasImg;
+    var html = '', valid = [], outside = 0, bad = 0, review = 0;
+    state.rows.forEach(function(r, i){
+      var c = pick.res[i], q = rowAB(r), fl = flags[i], st, cls, item = c ? {name:r.name, lat:c.lat, lon:c.lon, vals:r.vals} : null;
+      if (!q || !c) { st = 'قيمة غير صالحة'; cls = 'bad'; bad++; }
+      else if (q.issues.length) { st = 'الدقائق أو الثواني غير صحيحة'; cls = 'bad'; bad++; }
+      else if (!inEgypt(c)) { st = 'خارج مصر، راجع النظام أو الترتيب'; cls = 'bad'; outside++; valid.push(item); }
+      else if (fl.length) { st = 'راجع: ' + fl.join('، '); cls = 'warn'; review++; valid.push(item); }
+      else { st = 'سليمة'; cls = 'ok'; valid.push(item); }
+      var fc = (fl.length || (q && q.issues.length)) ? ' flag' : '';
+      html += '<tr>' +
+        '<td class="idx">'+(i+1)+'</td>' +
+        '<td><input type="text" data-i="'+i+'" data-f="name" value="'+esc(r.name)+'" aria-label="اسم النقطة '+(i+1)+'"></td>' +
+        '<td><input type="text" class="num'+fc+'" data-i="'+i+'" data-f="vals" value="'+esc(r.vals)+'" aria-label="قيم النقطة '+(i+1)+'"></td>' +
+        (hasImg ? '<td class="imgc">'+(r.img ? '<img class="rowimg" alt="الصف '+(i+1)+' في الصورة" src="'+r.img+'">' : '')+'</td>' : '') +
+        '<td class="out">'+(c ? showCoord(c.lat, true) : '-')+'</td>' +
+        '<td class="out">'+(c ? showCoord(c.lon, false) : '-')+'</td>' +
+        '<td class="st '+cls+'">'+st+'</td>' +
+        '<td><button type="button" class="small" data-del="'+i+'" aria-label="حذف النقطة '+(i+1)+'">حذف</button></td>' +
+        '</tr>';
+    });
+    if (!state.rows.length) html = '<tr><td colspan="8" class="muted" style="padding:18px;text-align:center">لا توجد نقاط بعد. ارفع ملفًا أو الصق الأرقام.</td></tr>';
+    $('#rows').innerHTML = html;
+
+    var parts = [];
+    parts.push(valid.length + ' نقطة جاهزة من ' + state.rows.length);
+    if (review) parts.push(review + ' تحتاج مراجعة');
+    if (state.rows.length) parts.push(pick.swap ? 'الترتيب المعتمد: الأول شمالي / دائرة العرض' : 'الترتيب المعتمد: الأول شرقي / خط الطول');
+    if (state.rows.length && currentSys().auto) parts.push('النظام المكتشف: ' + sys.label);
+    if (pick.ambiguous) parts.push('تنبيه: ترتيب العمودين غير مؤكد لأن الاحتمالين داخل مصر. اختر الترتيب الصحيح من "ترتيب العمودين" (N شمالي أو E شرقي)');
+    if (state.srcNote) parts.push(state.srcNote);
+    $('#summary').textContent = parts.join(' · ');
+    if (outside || bad) msg(outEl, outside ? 'بعض النقاط خارج حدود مصر. غالبًا النظام المختار أو ترتيب الأعمدة غير مناسب.' : 'بعض القيم غير صالحة أو دقائقها وثوانيها خارج المدى.', 'warn');
+    else if (review) msg(outEl, 'قارن الصفوف الصفراء بالصورة وصحّح الأرقام قبل التنزيل.', 'warn');
+    else if (outEl.className.indexOf('warn') > -1) msg(outEl, '');
+    var none = valid.length === 0;
+    $('#kmz').disabled = none; $('#ge').disabled = none; $('#sk').disabled = none; $('#copykml').disabled = none; $('#csv').disabled = none;
+    drawPlot(valid);
+    return valid;
+  }
+
+  function drawPlot(pts){
+    var svg = $('#plot');
+    if (!pts.length) { svg.innerHTML = ''; return; }
+    var W = 640, H = 300, P = 40, mode = $('#mode').value;
+    var lat0 = pts.reduce(function(s,p){return s+p.lat;},0)/pts.length, k = Math.cos(lat0*Math.PI/180);
+    var xs = pts.map(function(p){return p.lon*k;}), ys = pts.map(function(p){return p.lat;});
+    var minX = Math.min.apply(null,xs), maxX = Math.max.apply(null,xs), minY = Math.min.apply(null,ys), maxY = Math.max.apply(null,ys);
+    var spanX = Math.max(maxX-minX,1e-9), spanY = Math.max(maxY-minY,1e-9);
+    var sc = Math.min((W-2*P)/spanX,(H-2*P)/spanY), cx = (minX+maxX)/2, cy = (minY+maxY)/2;
+    var X = function(v){ return W/2+(v-cx)*sc; }, Y = function(v){ return H/2-(v-cy)*sc; };
+    var path = pts.map(function(p,i){ return (i?'L':'M')+X(p.lon*k).toFixed(1)+' '+Y(p.lat).toFixed(1); }).join(' ');
+    var s = '';
+    if (mode === 'poly' && pts.length > 2) s += '<path class="p-poly" d="'+path+' Z"/>';
+    else if (mode === 'line' && pts.length > 1) s += '<path class="p-line" d="'+path+'"/>';
+    pts.forEach(function(p,i){
+      var x = X(p.lon*k), y = Y(p.lat);
+      s += '<circle class="p-dot" cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="4"/>';
+      s += '<text class="p-lbl" x="'+(x+8).toFixed(1)+'" y="'+(y-7).toFixed(1)+'">'+esc(p.name)+'</text>';
+    });
+    s += '<path class="p-axis" d="M24 40 L24 18 M24 18 L19 26 M24 18 L29 26"/><text class="p-txt" x="34" y="32">N</text>';
+    if (pts.length > 1) {
+      var mPerPx = 111320/sc, target = mPerPx*90, steps = [1,2,5,10,20,50,100,200,500,1000,2000,5000,10000,20000,50000], nice = steps[0];
+      steps.forEach(function(v){ if (v <= target) nice = v; });
+      var len = nice/111320*sc;
+      if (len > 8 && len < W-2*P) {
+        s += '<path class="p-axis" d="M'+(W-P-len).toFixed(1)+' '+(H-18)+' L'+(W-P)+' '+(H-18)+' M'+(W-P-len).toFixed(1)+' '+(H-23)+' L'+(W-P-len).toFixed(1)+' '+(H-13)+' M'+(W-P)+' '+(H-23)+' L'+(W-P)+' '+(H-13)+'"/>';
+        s += '<text class="p-txt" x="'+(W-P-len/2).toFixed(1)+'" y="'+(H-28)+'" text-anchor="middle">'+nice+' m</text>';
+      }
+    }
+    svg.innerHTML = s;
+  }
+
+  /* ---------- KML / KMZ ---------- */
+  function x(s){ return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]; }); }
+  function docName(){ return ($('#docname').value || '').trim() || 'إحداثيات'; }
+  function fileBase(){ return docName().replace(/[\\\/:*?"<>|]+/g,'_').slice(0,80) || 'coordinates'; }
+  function buildKml(valid){
+    var sys = (lastPick && lastPick.sys) || currentSys(), mode = $('#mode').value, name = docName();
+    var k = '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n<name>'+x(name)+'</name>\n';
+    k += '<Style id="pt"><IconStyle><scale>0.9</scale><Icon><href>https://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon></IconStyle><LabelStyle><scale>0.9</scale></LabelStyle></Style>\n';
+    k += '<Style id="shape"><LineStyle><color>ff2a32b3</color><width>3</width></LineStyle><PolyStyle><color>4d2a32b3</color></PolyStyle></Style>\n';
+    /* top-down, north-up view that frames the points plus the surrounding zone (same as the sketch) */
+    var bufM = Math.max(0, Math.min(500, +$('#skbuf').value || 0)), la = valid.map(function(p){ return p.lat; }), lo = valid.map(function(p){ return p.lon; });
+    var cLa = (Math.min.apply(null, la) + Math.max.apply(null, la)) / 2, cLo = (Math.min.apply(null, lo) + Math.max.apply(null, lo)) / 2;
+    var kyy = 110574, kxx = 111320 * Math.cos(cLa * Math.PI / 180);
+    var hM = (Math.max.apply(null, la) - Math.min.apply(null, la)) * kyy + 2 * bufM, wM = (Math.max.apply(null, lo) - Math.min.apply(null, lo)) * kxx + 2 * bufM;
+    var rng = Math.max(60, Math.max(hM, wM) * 1.7);
+    k += '<LookAt><longitude>'+cLo.toFixed(8)+'</longitude><latitude>'+cLa.toFixed(8)+'</latitude><altitude>0</altitude><heading>0</heading><tilt>0</tilt><range>'+rng.toFixed(0)+'</range><altitudeMode>relativeToGround</altitudeMode></LookAt>\n';
+    k += '<Style id="zone"><LineStyle><color>ffffffff</color><width>2</width></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>\n';
+    var shapeOk = (mode === 'poly' && valid.length > 2) || (mode === 'line' && valid.length > 1);
+    var showPts = mode === 'pts' || !shapeOk || $('#verts').checked;
+    if (showPts) {
+    k += '<Folder><name>النقاط</name>\n';
+    valid.forEach(function(p){
+      k += '<Placemark><name>'+x(p.name)+'</name><styleUrl>#pt</styleUrl><description>'+x(sys.label+' | '+p.vals)+'</description><Point><coordinates>'+p.lon.toFixed(8)+','+p.lat.toFixed(8)+',0</coordinates></Point></Placemark>\n';
+    });
+    k += '</Folder>\n';
+    }
+    var ring = valid.map(function(p){ return p.lon.toFixed(8)+','+p.lat.toFixed(8)+',0'; });
+    if (mode === 'poly' && valid.length > 2) {
+      k += '<Placemark><name>'+x(name)+' (مضلع)</name><styleUrl>#shape</styleUrl><Polygon><tessellate>1</tessellate><outerBoundaryIs><LinearRing><coordinates>'+ring.concat([ring[0]]).join(' ')+'</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>\n';
+    } else if (mode === 'line' && valid.length > 1) {
+      k += '<Placemark><name>'+x(name)+' (خط)</name><styleUrl>#shape</styleUrl><LineString><tessellate>1</tessellate><coordinates>'+ring.join(' ')+'</coordinates></LineString></Placemark>\n';
+    }
+    if (bufM > 0) {
+      var zl = Math.min.apply(null, lo) - bufM / kxx, zr = Math.max.apply(null, lo) + bufM / kxx, zb = Math.min.apply(null, la) - bufM / kyy, zt = Math.max.apply(null, la) + bufM / kyy;
+      var zc = [[zl,zb],[zr,zb],[zr,zt],[zl,zt],[zl,zb]].map(function(q){ return q[0].toFixed(8)+','+q[1].toFixed(8)+',0'; }).join(' ');
+      k += '<Placemark><name>نطاق '+bufM+' م</name><styleUrl>#zone</styleUrl><LineString><tessellate>1</tessellate><coordinates>'+zc+'</coordinates></LineString></Placemark>\n';
+    }
+    return k + '</Document>\n</kml>\n';
+  }
+
+  function copyText(text){
+    var box = $('#kmlbox');
+    return (navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(text) : Promise.reject()).then(function(){
+      box.hidden = true; msg(outEl, 'تم نسخ نص KML. الصقه في ملف نصي واحفظه بامتداد .kml.', 'ok');
+    }).catch(function(){
+      box.hidden = false; box.value = text; box.select(); box.style.minHeight = '140px';
+      msg(outEl, 'تعذّر النسخ التلقائي. حدّد النص أدناه وانسخه يدويًا.', 'warn');
+    });
+  }
+  function blobDownload(blob, filename){
+    if (navigator.msSaveOrOpenBlob) { navigator.msSaveOrOpenBlob(blob, filename); return; }
+    var url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = filename; a.style.display = 'none';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 4000);
+  }
+  function makeKmz(valid){
+    var zip = new JSZip(); zip.file('doc.kml', buildKml(valid));
+    return zip.generateAsync({type:'blob', compression:'DEFLATE', mimeType:'application/vnd.google-earth.kmz'});
+  }
+  $('#share').addEventListener('click', function(){
+    var valid = render(); if (!valid.length || typeof JSZip === 'undefined') return;
+    makeKmz(valid).then(function(blob){
+      var file = new File([blob], fileBase() + '.kmz', {type:'application/vnd.google-earth.kmz'});
+      return navigator.share({files:[file], title: docName()});
+    }).catch(function(e){ if (!e || e.name !== 'AbortError') msg(outEl, 'تعذّرت المشاركة. استخدم زر تنزيل KMZ.', 'warn'); });
+  });
+
+  /* ---------- remove the chosen picture ---------- */
+  $('#rmimg').addEventListener('click', function(e){
+    e.stopPropagation();
+    job++; $('#stop').hidden = true;
+    if (activeWorker) { try { activeWorker.terminate(); } catch(err) {} activeWorker = null; }
+    var th = $('#thumb'); try { if (th.src.indexOf('blob:') === 0) URL.revokeObjectURL(th.src); } catch(err) {}
+    th.removeAttribute('src'); $('#thumbWrap').hidden = true;
+    $('#file').value = ''; $('#camfile').value = '';
+    var fromImg = /^(من الصورة|قراءة Claude)/.test(state.srcNote || '');
+    if (fromImg) { state.rows = []; state.srcNote = ''; $('#paste').value = ''; render(); }
+    msg(msgEl, fromImg ? 'تم حذف الصورة والنقاط المقروءة منها.' : 'تم حذف الصورة.', 'ok');
+  });
+
+  /* ---------- open in Google Earth after building the KMZ ---------- */
+  var EARTH_WEB = 'https://earth.google.com/web/';
+  function canShareFile(){
+    try { return !!(navigator.share && navigator.canShare && navigator.canShare({files:[new File(['x'], 'a.kmz', {type:'application/vnd.google-earth.kmz'})]})); } catch(e) { return false; }
+  }
+  var isTouch = /android|iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  function buildAndOpen(auto){
+    var valid = render(); if (!valid.length) return;
+    if (typeof JSZip === 'undefined') { msg(outEl, 'تعذّر تحميل مكتبة الضغط. تحقق من الاتصال بالإنترنت وأعد تحميل الصفحة.', 'err'); return; }
+    var win = null;
+    if (auto && !isTouch) { try { win = window.open('', '_blank'); } catch(e) {} }   /* must open inside the click */
+    makeKmz(valid).then(function(blob){
+      var name = fileBase() + '.kmz';
+      if (auto && isTouch && canShareFile()) {
+        return navigator.share({files:[new File([blob], name, {type:'application/vnd.google-earth.kmz'})], title: docName()})
+          .then(function(){ msg(outEl, 'اختر Google Earth من القائمة لفتح الملف.', 'ok'); })
+          .catch(function(e){
+            if (e && e.name === 'AbortError') return;
+            blobDownload(blob, name);
+            msg(outEl, 'تم تنزيل الملف. افتحه من التنزيلات أو استخدم زر "مشاركة KMZ" واختر Google Earth.', 'warn');
+          });
+      }
+      blobDownload(blob, name);
+      if (auto && win) {
+        try { win.location.href = EARTH_WEB; } catch(e) {}
+        msg(outEl, 'تم تنزيل ' + name + ' وفتح Google Earth في تبويب جديد. للعرض داخل الويب: Projects ثم Import KML. وفي Google Earth Pro على ويندوز افتح الملف المنزَّل بنقرتين.', 'ok');
+      } else if (auto && !isTouch) {
+        msg(outEl, 'تم تنزيل ' + name + '. المتصفح منع فتح تبويب جديد، فافتح الملف بنقرتين (Google Earth Pro) أو ادخل ' + EARTH_WEB, 'warn');
+      } else msg(outEl, 'تم إنشاء ملف KMZ. يفتح في Google Earth بمنظر علوي موجّه للشمال يشمل النقاط ونطاق ' + (+$('#skbuf').value || 0) + ' م. لحفظ صورة حقيقية: في Google Earth Pro اختر ملف ثم حفظ ثم حفظ الصورة، وعلى الويب أو الموبايل خذ لقطة شاشة.', 'ok');
+    }).catch(function(){ if (win) { try { win.close(); } catch(e) {} } msg(outEl, 'تعذّر إنشاء الملف.', 'err'); });
+  }
+  $('#kmz').addEventListener('click', function(){ buildAndOpen($('#autoGE').checked); });
+  $('#ge').addEventListener('click', function(){ buildAndOpen(true); });
+
+  /* ---------- sketch (كروكي) over satellite imagery ---------- */
+  var skmsg = $('#skmsg'), skBlob = null;
+  var TILE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  function mx(lon, z){ return (lon + 180) / 360 * 256 * Math.pow(2, z); }
+  function my(lat, z){ var r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * Math.pow(2, z); }
+  function distM(a, b){
+    var R = 6371008.8, f1 = a.lat * Math.PI / 180, f2 = b.lat * Math.PI / 180, dl = (b.lon - a.lon) * Math.PI / 180, dp = f2 - f1;
+    var h = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(f1) * Math.cos(f2) * Math.sin(dl/2) * Math.sin(dl/2);
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  function areaM2(pts){
+    var lat0 = pts.reduce(function(t,p){ return t + p.lat; }, 0) / pts.length, kx = 111320 * Math.cos(lat0 * Math.PI / 180), ky = 110574, s2 = 0, i, j;
+    for (i = 0; i < pts.length; i++) { j = (i + 1) % pts.length; s2 += (pts[i].lon * kx) * (pts[j].lat * ky) - (pts[j].lon * kx) * (pts[i].lat * ky); }
+    return Math.abs(s2) / 2;
+  }
+  function loadTile(z, x, y){
+    return new Promise(function(res){
+      var im = new Image(); im.crossOrigin = 'anonymous';
+      im.onload = function(){ res(im); }; im.onerror = function(){ res(null); };
+      im.src = TILE.replace('{z}', z).replace('{y}', y).replace('{x}', x);
+    });
+  }
+  function halo(g, text, x, y, size, align){
+    g.font = '700 ' + size + 'px system-ui, "Segoe UI", Tahoma, sans-serif'; g.textAlign = align || 'left'; g.textBaseline = 'middle';
+    g.lineJoin = 'round'; g.lineWidth = Math.max(4, size / 4); g.strokeStyle = 'rgba(0,0,0,.85)'; g.strokeText(text, x, y);
+    g.fillStyle = '#fff'; g.fillText(text, x, y);
+  }
+  function fmtLen(m){ return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : (m >= 100 ? m.toFixed(0) : m.toFixed(1)) + ' m'; }
+  function drawSketch(valid){
+    var cv = $('#skcv'), g = cv.getContext('2d'), W = cv.width, H = cv.height, mode = $('#mode').value;
+    g.direction = 'ltr';
+    var lats = valid.map(function(p){ return p.lat; }), lons = valid.map(function(p){ return p.lon; });
+    var minLat = Math.min.apply(null, lats), maxLat = Math.max.apply(null, lats), minLon = Math.min.apply(null, lons), maxLon = Math.max.apply(null, lons);
+    var buf = Math.max(0, Math.min(500, +$('#skbuf').value || 0)), kLat = 110574, kLon = 111320 * Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
+    minLat -= buf / kLat; maxLat += buf / kLat; minLon -= buf / kLon; maxLon += buf / kLon;
+    var wantOSM = $('#skosm').checked, osmP = wantOSM ? fetchOSM(minLat, minLon, maxLat, maxLon) : Promise.resolve(null);
+    var cLat = (minLat + maxLat) / 2, cLon = (minLon + maxLon) / 2, z = 19, spanX, spanY;
+    for (; z > 1; z--) {
+      spanX = Math.abs(mx(maxLon, z) - mx(minLon, z)); spanY = Math.abs(my(minLat, z) - my(maxLat, z));
+      if (spanX <= W * 0.86 && spanY <= H * 0.8) break;
+    }
+    var cx = mx(cLon, z), cy = my(cLat, z), ox = cx - W / 2, oy = cy - H / 2;
+    var X = function(lon){ return mx(lon, z) - ox; }, Y = function(lat){ return my(lat, z) - oy; };
+    var mpp = 156543.03392 * Math.cos(cLat * Math.PI / 180) / Math.pow(2, z);
+    g.fillStyle = '#20252b'; g.fillRect(0, 0, W, H);
+    var tx0 = Math.floor(ox / 256), tx1 = Math.floor((ox + W) / 256), ty0 = Math.floor(oy / 256), ty1 = Math.floor((oy + H) / 256), jobs = [], n = Math.pow(2, z);
+    for (var ty = ty0; ty <= ty1; ty++) for (var tx = tx0; tx <= tx1; tx++) if (ty >= 0 && ty < n) (function(tx, ty){
+      jobs.push(loadTile(z, ((tx % n) + n) % n, ty).then(function(im){ return {im:im, tx:tx, ty:ty}; }));
+    })(tx, ty);
+    return Promise.all([Promise.all(jobs), osmP]).then(function(rr){
+      var list = rr[0], osm = rr[1], ok = 0;
+      list.forEach(function(t){ if (t.im) { g.drawImage(t.im, t.tx * 256 - ox, t.ty * 256 - oy); ok++; } });
+      if (!ok) {
+        g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = 1;
+        for (var i = 0; i < W; i += 80) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, H); g.stroke(); }
+        for (var j = 0; j < H; j += 80) { g.beginPath(); g.moveTo(0, j); g.lineTo(W, j); g.stroke(); }
+      }
+      var pts = valid.map(function(p){ return {x:X(p.lon), y:Y(p.lat), p:p}; });
+      var legend = osm ? drawOSM(g, osm, X, Y, mpp, W, H) : [];
+      /* dim everything farther than buf from the coordinates */
+      if (buf > 0) {
+        var m = document.createElement('canvas'); m.width = W; m.height = H; var mg = m.getContext('2d'), rp = buf / mpp;
+        mg.fillStyle = 'rgba(0,0,0,.42)'; mg.fillRect(0, 0, W, H);
+        mg.globalCompositeOperation = 'destination-out'; mg.fillStyle = '#000'; mg.strokeStyle = '#000'; mg.lineJoin = 'round'; mg.lineCap = 'round'; mg.lineWidth = rp * 2;
+        pts.forEach(function(q){ mg.beginPath(); mg.arc(q.x, q.y, rp, 0, 7); mg.fill(); });
+        if (pts.length > 1) {
+          mg.beginPath(); pts.forEach(function(q, i){ i ? mg.lineTo(q.x, q.y) : mg.moveTo(q.x, q.y); });
+          if (mode === 'poly' && pts.length > 2) { mg.closePath(); mg.fill(); }
+          if (mode !== 'pts') mg.stroke();
+        }
+        g.drawImage(m, 0, 0);
+      }
+      g.lineJoin = 'round'; g.lineCap = 'round';
+      if ((mode === 'poly' && pts.length > 2) || (mode === 'line' && pts.length > 1)) {
+        g.beginPath(); pts.forEach(function(q, i){ i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y); });
+        if (mode === 'poly') { g.closePath(); g.fillStyle = 'rgba(255,214,0,.22)'; g.fill(); }
+        g.lineWidth = 9; g.strokeStyle = 'rgba(0,0,0,.6)'; g.stroke();
+        g.lineWidth = 5; g.strokeStyle = '#ffd600'; g.stroke();
+        var cnt = mode === 'poly' ? pts.length : pts.length - 1;
+        for (var e = 0; e < cnt; e++) {
+          var a = pts[e], b = pts[(e + 1) % pts.length], d = distM(a.p, b.p);
+          if (hypot(b.x - a.x, b.y - a.y) > 90) halo(g, fmtLen(d), (a.x + b.x) / 2, (a.y + b.y) / 2, 24, 'center');
+        }
+      }
+      pts.forEach(function(q){
+        g.beginPath(); g.arc(q.x, q.y, 9, 0, 7); g.fillStyle = '#e53935'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#fff'; g.stroke();
+        halo(g, String(q.p.name), q.x + 15, q.y - 15, 28, 'left');
+      });
+      if (legend.length) {
+        var lh = 34 * legend.length + 20, ly = 140;
+        g.fillStyle = 'rgba(0,0,0,.62)'; g.fillRect(16, ly, 270, lh);
+        legend.forEach(function(it, i){
+          var yy = ly + 28 + i * 34;
+          g.fillStyle = it.c; g.strokeStyle = '#fff'; g.lineWidth = 2;
+          if (it.line) { g.lineWidth = 6; g.strokeStyle = it.c; g.beginPath(); g.moveTo(28, yy); g.lineTo(62, yy); g.stroke(); }
+          else { g.fillRect(28, yy - 11, 34, 22); g.strokeRect(28, yy - 11, 34, 22); }
+          g.direction = 'rtl'; halo(g, it.t, 76, yy, 22, 'left'); g.direction = 'ltr';
+        });
+      }
+      if (buf > 0) { g.direction = 'rtl'; halo(g, 'المناطق المظللة أبعد من ' + buf + ' م عن الإحداثيات', W / 2, H - 60, 22, 'center'); g.direction = 'ltr'; }
+      /* north arrow (the map is north-up) */
+      var nx = W - 90, ny = 110;
+      g.fillStyle = 'rgba(0,0,0,.55)'; g.beginPath(); g.arc(nx, ny, 62, 0, 7); g.fill();
+      g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.arc(nx, ny, 62, 0, 7); g.stroke();
+      g.fillStyle = '#e53935'; g.beginPath(); g.moveTo(nx, ny - 48); g.lineTo(nx + 17, ny + 20); g.lineTo(nx, ny + 8); g.lineTo(nx - 17, ny + 20); g.closePath(); g.fill();
+      g.fillStyle = '#fff'; g.beginPath(); g.moveTo(nx, ny + 8); g.lineTo(nx + 17, ny + 20); g.lineTo(nx, ny + 48); g.lineTo(nx - 17, ny + 20); g.closePath(); g.globalAlpha = .35; g.fill(); g.globalAlpha = 1;
+      halo(g, 'N', nx, ny - 78 + 6, 34, 'center');
+      halo(g, 'الشمال', nx, ny + 84, 24, 'center');
+      /* scale bar */
+      var steps = [1,2,5,10,20,50,100,200,500,1000,2000,5000,10000,20000,50000,100000], nice = steps[0];
+      steps.forEach(function(v){ if (v / mpp <= 300) nice = v; });
+      var len = nice / mpp, bx = 40, by = H - 70;
+      g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(bx - 14, by - 40, len + 28, 70);
+      g.strokeStyle = '#fff'; g.lineWidth = 4; g.beginPath(); g.moveTo(bx, by - 10); g.lineTo(bx, by + 10); g.moveTo(bx, by); g.lineTo(bx + len, by); g.moveTo(bx + len, by - 10); g.lineTo(bx + len, by + 10); g.stroke();
+      halo(g, fmtLen(nice), bx + len / 2, by - 22, 24, 'center');
+      /* title + info */
+      var info = docName() + (mode === 'poly' && valid.length > 2 ? '  ·  المساحة ' + (function(a){ return a >= 10000 ? (a / 10000).toFixed(2) + ' هكتار' : a.toFixed(0) + ' م²'; })(areaM2(valid)) : '') + '  ·  ' + valid.length + ' نقطة';
+      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, 0, W - 190, 66);
+      g.direction = 'rtl'; halo(g, info, W - 210, 34, 30, 'right'); g.direction = 'ltr';
+      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(W - 640, H - 36, 640, 36);
+      halo(g, 'by eng. Mohamed Shaker  ·  Imagery © Esri, Maxar, Earthstar Geographics  ·  WGS84', W - 12, H - 18, 17, 'right');
+      return {ok:ok, osm:osm};
+    });
+  }
+
+  /* ---------- surroundings from OpenStreetMap (streets, farmland, buildings, water) ---------- */
+  var OVP = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+  function fetchOSM(s0, w0, n0, e0){
+    var spanM = Math.max((n0 - s0) * 110574, (e0 - w0) * 111320 * Math.cos((s0 + n0) / 2 * Math.PI / 180));
+    if (spanM > 8000) return Promise.resolve(null);
+    var bb = [s0, w0, n0, e0].map(function(v){ return v.toFixed(6); }).join(',');
+    var q = '[out:json][timeout:25];(way["highway"](' + bb + ');way["railway"](' + bb + ');way["waterway"](' + bb + ');way["natural"="water"](' + bb + ');' +
+      'way["landuse"](' + bb + ');way["leisure"](' + bb + ');way["amenity"](' + bb + ');' + (spanM <= 3000 ? 'way["building"](' + bb + ');' : '') + ');out tags geom;';
+    function go(i){
+      if (i >= OVP.length) return Promise.resolve(null);
+      var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, to = setTimeout(function(){ if (ctl) ctl.abort(); }, 28000);
+      return fetch(OVP[i], {method:'POST', body:'data=' + encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'}, signal: ctl ? ctl.signal : undefined})
+        .then(function(r){ clearTimeout(to); if (!r.ok) throw 0; return r.json(); })
+        .then(function(j){ return (j.elements || []).filter(function(el){ return el.geometry && el.geometry.length > 1; }); })
+        .catch(function(){ clearTimeout(to); return go(i + 1); });
+    }
+    return go(0);
+  }
+  var HW = {motorway:[16,'#e8845c'], trunk:[14,'#f2a05a'], primary:[12,'#f6c56b'], secondary:[10,'#f7e08a'], tertiary:[8,'#ffffff'], residential:[7,'#ffffff'], unclassified:[6,'#ffffff'], service:[4,'#e9e9e9'], track:[3.5,'#c9a86a'], path:[2,'#e57373'], footway:[2,'#e57373'], living_street:[6,'#ffffff']};
+  var HWAR = {motorway:'طريق سريع', trunk:'طريق رئيسي', primary:'طريق رئيسي', secondary:'طريق فرعي', tertiary:'شارع', residential:'شارع سكني', unclassified:'شارع', service:'طريق خدمة', track:'طريق ترابي / زراعي', path:'ممر', footway:'ممر مشاة', living_street:'شارع'};
+  function areaStyle(t){
+    var lu = t.landuse, nat = t.natural, lei = t.leisure, am = t.amenity;
+    if (t.building) return {k:'bld', c:'rgba(210,90,70,.78)', l:'مبانٍ'};
+    if (/^(farmland|farm|orchard|vineyard|greenhouse_horticulture|plant_nursery|meadow|grass)$/.test(lu || '')) return {k:'agr', c:'rgba(76,175,80,.40)', l:'أراضٍ زراعية'};
+    if (lu === 'residential') return {k:'res', c:'rgba(255,167,38,.30)', l:'سكني'};
+    if (/^(commercial|retail|industrial)$/.test(lu || '')) return {k:'com', c:'rgba(171,71,188,.30)', l:'تجاري / صناعي'};
+    if (/^(cemetery|religious)$/.test(lu || '') || am === 'place_of_worship') return {k:'rel', c:'rgba(158,158,158,.40)', l:'مقابر / دينية'};
+    if (nat === 'water' || lu === 'basin' || lu === 'reservoir') return {k:'wat', c:'rgba(41,121,255,.55)', l:'مياه'};
+    if (lu === 'forest' || nat === 'wood' || lu === 'village_green' || /^(park|garden|pitch)$/.test(lei || '')) return {k:'grn', c:'rgba(56,142,60,.35)', l:'أشجار / حدائق'};
+    if (am === 'school' || am === 'hospital' || am === 'university') return {k:'pub', c:'rgba(255,238,88,.35)', l:'مرافق عامة'};
+    return null;
+  }
+  function drawOSM(g, els, X, Y, mpp, W, H){
+    var used = {}, order = {agr:0, res:1, com:1, rel:1, grn:1, pub:1, wat:2, bld:3}, areas = [], lines = [], labels = [];
+    function path(geom, close){ g.beginPath(); geom.forEach(function(p, i){ var x = X(p.lon), y = Y(p.lat); i ? g.lineTo(x, y) : g.moveTo(x, y); }); if (close) g.closePath(); }
+    els.forEach(function(el){
+      var t = el.tags || {}, geom = el.geometry, closed = geom.length > 3 && geom[0].lat === geom[geom.length - 1].lat && geom[0].lon === geom[geom.length - 1].lon;
+      if (t.highway && !t.area) lines.push({el:el, kind:'hw'});
+      else if (t.railway) lines.push({el:el, kind:'rail'});
+      else if (t.waterway) lines.push({el:el, kind:'ww'});
+      else if (closed) { var st = areaStyle(t); if (st) areas.push({el:el, st:st}); }
+    });
+    areas.sort(function(a, b){ return order[a.st.k] - order[b.st.k]; });
+    areas.forEach(function(a){
+      path(a.el.geometry, true); g.fillStyle = a.st.c; g.fill();
+      if (a.st.k !== 'bld') { g.lineWidth = 2; g.strokeStyle = 'rgba(255,255,255,.55)'; g.stroke(); } else { g.lineWidth = 1.5; g.strokeStyle = 'rgba(80,20,10,.9)'; g.stroke(); }
+      used[a.st.k] = {c:a.st.c.replace(/,\s*[\d.]+\)$/, ',1)'), t:a.st.l};
+      var nm = a.el.tags['name:ar'] || a.el.tags.name;
+      if (nm && a.st.k !== 'bld') { var s2 = a.el.geometry.reduce(function(m, p){ return {x:m.x + X(p.lon), y:m.y + Y(p.lat)}; }, {x:0, y:0}); labels.push({t:nm, x:s2.x / a.el.geometry.length, y:s2.y / a.el.geometry.length, size:22}); }
+    });
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    var wl = lines.filter(function(l){ return l.kind === 'ww'; });
+    wl.forEach(function(l){
+      var ty = l.el.tags.waterway, w = Math.max(4, (ty === 'canal' || ty === 'river' ? 8 : 4) / mpp);
+      path(l.el.geometry, false); g.lineWidth = w; g.strokeStyle = 'rgba(41,121,255,.85)'; g.stroke();
+      used.ww = {c:'#2979ff', t:ty === 'drain' ? 'مصرف' : (ty === 'canal' || ty === 'river' ? 'ترعة / قناة' : 'مجرى مائي'), line:true};
+      var nm = l.el.tags['name:ar'] || l.el.tags.name; if (nm) labels.push({t:nm, line:l.el.geometry, size:22});
+    });
+    lines.filter(function(l){ return l.kind === 'rail'; }).forEach(function(l){
+      path(l.el.geometry, false); g.lineWidth = 5; g.strokeStyle = '#212121'; g.setLineDash([]); g.stroke();
+      g.lineWidth = 2.5; g.strokeStyle = '#fff'; g.setLineDash([14, 14]); g.stroke(); g.setLineDash([]);
+      used.rail = {c:'#424242', t:'سكة حديد', line:true};
+    });
+    var hws = lines.filter(function(l){ return l.kind === 'hw' && HW[l.el.tags.highway]; });
+    hws.sort(function(a, b){ return HW[a.el.tags.highway][0] - HW[b.el.tags.highway][0]; });
+    function hwW(l){ return Math.max(5, HW[l.el.tags.highway][0] / mpp); }
+    hws.forEach(function(l){ path(l.el.geometry, false); g.lineWidth = hwW(l) + 5; g.strokeStyle = 'rgba(40,40,40,.85)'; g.stroke(); });
+    hws.forEach(function(l){
+      path(l.el.geometry, false); g.lineWidth = hwW(l); g.strokeStyle = HW[l.el.tags.highway][1]; g.stroke();
+      var ty = l.el.tags.highway; used['hw' + ty] = {c:HW[ty][1], t:HWAR[ty], line:true};
+      var nm = l.el.tags['name:ar'] || l.el.tags.name; if (nm) labels.push({t:nm, line:l.el.geometry, size:24, road:true});
+    });
+    /* labels last: roads / canals get text along their longest segment, kept upright */
+    var seen = {};
+    labels.forEach(function(L){
+      if (seen[L.t]) return; seen[L.t] = 1;
+      if (L.line) {
+        var best = null, bl = 0, i;
+        for (i = 0; i < L.line.length - 1; i++) {
+          var x1 = X(L.line[i].lon), y1 = Y(L.line[i].lat), x2 = X(L.line[i+1].lon), y2 = Y(L.line[i+1].lat), d = Math.sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1));
+          var mxx = (x1 + x2) / 2, myy = (y1 + y2) / 2;
+          if (d > bl && mxx > 80 && mxx < W - 80 && myy > 40 && myy < H - 40) { bl = d; best = [x1, y1, x2, y2]; }
+        }
+        if (!best || bl < 60) return;
+        var ang = Math.atan2(best[3] - best[1], best[2] - best[0]); if (ang > Math.PI / 2) ang -= Math.PI; if (ang < -Math.PI / 2) ang += Math.PI;
+        g.save(); g.translate((best[0] + best[2]) / 2, (best[1] + best[3]) / 2); g.rotate(ang); g.direction = 'rtl'; halo(g, L.t, 0, 0, L.size, 'center'); g.restore();
+      } else if (L.x > 0 && L.x < W && L.y > 0 && L.y < H) { g.direction = 'rtl'; halo(g, L.t, L.x, L.y, L.size, 'center'); }
+    });
+    g.direction = 'ltr';
+    var arr = []; Object.keys(used).forEach(function(k){ arr.push(used[k]); });
+    var uniq = {}; return arr.filter(function(it){ if (uniq[it.t]) return false; uniq[it.t] = 1; return true; });
+  }
+  function hypot(a, b){ return Math.sqrt(a * a + b * b); }
+  $('#sk').addEventListener('click', function(){
+    var valid = render(); if (!valid.length) { msg(skmsg, 'لا توجد نقاط صالحة لرسم الكروكي.', 'warn'); return; }
+    msg(skmsg, 'جارٍ تحميل صورة الأقمار الصناعية ورسم الكروكي…');
+    $('#sk').disabled = true;
+    drawSketch(valid).then(function(r){
+      var ok = r.ok, osm = r.osm;
+      $('#sk').disabled = false;
+      $('#skcv').hidden = false;
+      $('#skcv').toBlob(function(b){
+        skBlob = b; $('#skdl').hidden = !b; $('#skshare').hidden = !(b && canShareFile());
+      }, 'image/png');
+      msg(skmsg, ok ? 'تم رسم الكروكي. السهم يحدد اتجاه الشمال.' + (!$('#skosm').checked ? '' : osm && osm.length ? ' المعالم من OpenStreetMap وقد لا تشمل كل الشوارع والحقول، فراجع صورة القمر الصناعي.' : ' لم تتوفر بيانات معالم (OpenStreetMap) في هذه المنطقة أو تعذّر تحميلها، والصورة الفضائية تظهر الطبيعة.') : 'تعذّر تحميل صورة الأقمار الصناعية (تحقق من الإنترنت). رُسمت النقاط على خلفية بسيطة.', ok ? 'ok' : 'warn');
+    }).catch(function(){ $('#sk').disabled = false; msg(skmsg, 'تعذّر رسم الكروكي.', 'err'); });
+  });
+  $('#skdl').addEventListener('click', function(){
+    if (!skBlob) return; blobDownload(skBlob, fileBase() + '-كروكي.png'); msg(skmsg, 'تم تنزيل الكروكي.', 'ok');
+  });
+  $('#skshare').addEventListener('click', function(){
+    if (!skBlob) return;
+    try { navigator.share({files:[new File([skBlob], fileBase() + '-sketch.png', {type:'image/png'})], title: docName()}).catch(function(){}); } catch(e) {}
+  });
+  $('#copykml').addEventListener('click', function(){ var v = render(); if (v.length) copyText(buildKml(v)); });
+  $('#csv').addEventListener('click', function(){
+    var v = render(); if (!v.length) return;
+    var t = '﻿name,lat,lon\n' + v.map(function(p){ return '"'+String(p.name).replace(/"/g,'""')+'",'+p.lat.toFixed(8)+','+p.lon.toFixed(8); }).join('\n') + '\n';
+    blobDownload(new Blob([t], {type:'text/csv;charset=utf-8'}), fileBase() + '.csv');
+    msg(outEl, 'تم إنشاء ملف CSV.', 'ok');
+  });
+
+  /* ---------- inputs ---------- */
+  function setRows(rows, note, hint){
+    state.rows = rows; state.isExample = false; state.srcNote = note || ''; state.hintSwap = !!hint;
+    $('#kmlbox').hidden = true; msg(outEl, '');
+    render();
+  }
+  function loadText(text, note){
+    var rows = parseText(text, geoFlag());
+    (function(){
+      var heads = String(text).split(/\r?\n/).filter(function(l){ return l.trim() && !/\d{3}/.test(l.replace(/[٠-٩]/g, '0')); }).slice(0, 3).join(' ');
+      var iLat = heads.search(/(^|[^a-z])(n|lat\w*|north\w*)([^a-z]|$)|شمال|عرض/i), iLon = heads.search(/(^|[^a-z])(e|lon\w*|east\w*)([^a-z]|$)|شرق|طول/i);
+      if (iLat >= 0 && iLon >= 0) $('#order').value = (iLat < iLon ? 'yx' : 'xy');
+    })();
+    if (!rows.length) { msg(msgEl, 'لم أجد صفوفًا فيها رقمان على الأقل. تأكد من النص وحاول مرة أخرى.', 'err'); return; }
+    setRows(rows, note);
+    msg(msgEl, 'تمت قراءة ' + rows.length + ' نقطة.', 'ok');
+  }
+  $('#parse').addEventListener('click', function(){ loadText($('#paste').value, 'من النص الملصوق'); });
+
+  var job = 0, activeWorker = null;
+  function prepImage(src){
+    return new Promise(function(res, rej){
+      var img = new Image();
+      img.onload = function(){
+        var k = Math.max(1, Math.min(3, 1800 / img.width)), w = Math.round(img.width * k), h = Math.round(img.height * k);
+        if (w * h > 12e6) { k = Math.sqrt(12e6 / (img.width * img.height)); w = Math.round(img.width * k); h = Math.round(img.height * k); }
+        var c = document.createElement('canvas'); c.width = w; c.height = h;
+        var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); g.drawImage(img, 0, 0, w, h);
+        var id = g.getImageData(0, 0, w, h), d = id.data, n = w * h, gray = new Uint8Array(n), hist = [], i, x, y, s, j, yy, xx;
+        for (i = 0; i < 256; i++) hist[i] = 0;
+        for (i = 0; i < n; i++) { var v = (0.299 * d[4*i] + 0.587 * d[4*i+1] + 0.114 * d[4*i+2]) | 0; gray[i] = v; hist[v]++; }
+        var sum = 0; for (i = 0; i < 256; i++) sum += i * hist[i];
+        var sB = 0, wB = 0, best = -1, t = 128;
+        for (i = 0; i < 256; i++) {
+          wB += hist[i]; if (!wB) continue;
+          var wF = n - wB; if (!wF) break;
+          sB += i * hist[i];
+          var mB = sB / wB, mF = (sum - sB) / wF, bt = wB * wF * (mB - mF) * (mB - mF);
+          if (bt > best) { best = bt; t = i; }
+        }
+        var bin = new Uint8Array(n), dark = 0;
+        for (i = 0; i < n; i++) { bin[i] = gray[i] <= t ? 1 : 0; dark += bin[i]; }
+        if (dark > n * 0.5) for (i = 0; i < n; i++) bin[i] = 1 - bin[i];
+        /* grayscale copy for the fallback pass */
+        for (i = 0; i < n; i++) { d[4*i] = d[4*i+1] = d[4*i+2] = gray[i]; d[4*i+3] = 255; }
+        g.putImageData(id, 0, 0);
+        /* erase long horizontal and vertical runs (table borders) */
+        var mask = new Uint8Array(n), hRun = Math.max(90, Math.round(0.07 * w)), vRun = Math.max(90, Math.round(0.07 * h));
+        for (y = 0; y < h; y++) {
+          x = 0;
+          while (x < w) {
+            if (bin[y*w+x]) {
+              s = x; while (x < w && bin[y*w+x]) x++;
+              if (x - s >= hRun) for (j = s; j < x; j++) for (yy = Math.max(0, y-2); yy <= Math.min(h-1, y+2); yy++) mask[yy*w+j] = 1;
+            } else x++;
+          }
+        }
+        for (x = 0; x < w; x++) {
+          y = 0;
+          while (y < h) {
+            if (bin[y*w+x]) {
+              s = y; while (y < h && bin[y*w+x]) y++;
+              if (y - s >= vRun) for (j = s; j < y; j++) for (xx = Math.max(0, x-2); xx <= Math.min(w-1, x+2); xx++) mask[j*w+xx] = 1;
+            } else y++;
+          }
+        }
+        var c2 = document.createElement('canvas'); c2.width = w; c2.height = h;
+        var g2 = c2.getContext('2d'), id2 = g2.createImageData(w, h), d2 = id2.data;
+        for (i = 0; i < n; i++) { var o = (bin[i] && !mask[i]) ? 0 : 255; d2[4*i] = d2[4*i+1] = d2[4*i+2] = o; d2[4*i+3] = 255; }
+        g2.putImageData(id2, 0, 0);
+        res({clean: c2, plain: c});
+      };
+      img.onerror = rej; img.src = src;
+    });
+  }
+  var OCR_CHARS = '0123456789.,-+ °\'"′″NSEW';
+  function legacyImage(file){
+    if (typeof Tesseract === 'undefined') { msg(msgEl, 'تعذّر تحميل قارئ الصور. تحقق من الاتصال بالإنترنت أو الصق الأرقام.', 'err'); return; }
+    var th = $('#thumb'); th.src = URL.createObjectURL(file); th.hidden = false; $('#thumbWrap').hidden = false;
+    var my = ++job, w = null;
+    $('#stop').hidden = false;
+    msg(msgEl, 'جارٍ تحضير قارئ الصور… في أول مرة يحمّل المتصفح بيانات القراءة.');
+    prepImage(th.src).then(function(pre){
+      return Tesseract.createWorker('eng', 1, {logger: function(m){
+        if (my === job && m.status === 'recognizing text') msg(msgEl, 'جارٍ قراءة الأرقام… ' + Math.round((m.progress || 0) * 100) + '%');
+      }}).then(function(x){
+        w = x; activeWorker = x;
+        return w.setParameters({tessedit_char_whitelist: OCR_CHARS, preserve_interword_spaces:'1', tessedit_pageseg_mode:'6'});
+      }).then(function(){ return w.recognize(pre.clean); }).then(function(r1){
+        var rows = parseText(r1.data.text, geoFlag());
+        if (rows.length || my !== job) return rows;
+        return w.recognize(pre.plain).then(function(r2){ return parseText(r2.data.text, geoFlag()); });
+      });
+    }).then(function(rows){
+      if (my !== job) return;
+      if (!rows || !rows.length) { msg(msgEl, 'لم أستطع استخراج صفوف من الصورة. جرّب صورة أوضح وأقرب للجدول، أو الصق الأرقام.', 'err'); return; }
+      $('#paste').value = rows.map(function(r){ return r.name + '\t' + String(r.vals).replace(/ /g, '\t'); }).join('\n');
+      setRows(rows, 'من الصورة: ' + file.name);
+      msg(msgEl, 'تمت قراءة ' + rows.length + ' نقطة من الصورة. قارن الأرقام بالصورة قبل التنزيل، فقراءة الصور قد تخطئ في رقم.', 'ok');
+    }).catch(function(){
+      if (my === job) msg(msgEl, 'تعذّرت قراءة الصورة. تحقق من الاتصال بالإنترنت أو الصق الأرقام.', 'err');
+    }).then(function(){
+      if (my === job) $('#stop').hidden = true;
+      if (w) { try { w.terminate(); } catch(e) {} }
+      if (activeWorker === w) activeWorker = null;
+    });
+  }
+  /* ---------- reading a table photo cell by cell ---------- */
+  function grayFromSrc(src){
+    return new Promise(function(res, rej){
+      var img = new Image();
+      img.onload = function(){
+        var w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, 4000 / Math.max(w, h)), cw = Math.round(w * k), ch = Math.round(h * k);
+        var c = document.createElement('canvas'); c.width = cw; c.height = ch;
+        var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cw, ch); g.drawImage(img, 0, 0, cw, ch);
+        var d = g.getImageData(0, 0, cw, ch).data, gray = new Uint8Array(cw * ch);
+        for (var i = 0; i < gray.length; i++) gray[i] = (0.299 * d[4*i] + 0.587 * d[4*i+1] + 0.114 * d[4*i+2]) | 0;
+        res({gray:gray, w:cw, h:ch});
+      };
+      img.onerror = rej; img.src = src;
+    });
+  }
+  function grayToCanvas(data, w, h){
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var g = c.getContext('2d'), id = g.createImageData(w, h), d = id.data;
+    for (var i = 0; i < data.length; i++) { var v = data[i]; d[4*i] = d[4*i+1] = d[4*i+2] = v; d[4*i+3] = 255; }
+    g.putImageData(id, 0, 0); return c;
+  }
+  function makeOcr(w){
+    var cur = null;
+    return function(img, psm){
+      psm = psm || 7;
+      return (cur === psm ? Promise.resolve() : w.setParameters({tessedit_pageseg_mode:String(psm)}).then(function(){ cur = psm; }))
+        .then(function(){ return w.recognize(grayToCanvas(img.data, img.w, img.h)); })
+        .then(function(r){ return {text:r.data.text, conf:r.data.confidence}; });
+    };
+  }
+  function rowThumb(prep, row){
+    var x0 = 1e9, x1 = 0;
+    row.boxes.forEach(function(b){ if (b.x0 < x0) x0 = b.x0; if (b.x1 > x1) x1 = b.x1; });
+    x0 = Math.max(0, x0 - 14); x1 = Math.min(prep.w - 1, x1 + 14);
+    var y0 = Math.max(0, row.y0 - 2), y1 = Math.min(prep.h - 1, row.y1 + 2), cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+    var sub = new Uint8Array(cw * ch);
+    for (var y = 0; y < ch; y++) sub.set(prep.gray.subarray((y0 + y) * prep.w + x0, (y0 + y) * prep.w + x0 + cw), y * cw);
+    var c = grayToCanvas(sub, cw, ch), s = Math.min(1, 520 / cw), o = document.createElement('canvas');
+    o.width = Math.max(1, Math.round(cw * s)); o.height = Math.max(1, Math.round(ch * s));
+    o.getContext('2d').drawImage(c, 0, 0, o.width, o.height);
+    return o.toDataURL('image/jpeg', 0.75);
+  }
+  function readTableLocal(src, my){
+    return grayFromSrc(src).then(function(im){
+      return Tesseract.createWorker('eng', 1, {}).then(function(w){
+        activeWorker = w;
+        function done(){ try { w.terminate(); } catch(e) {} if (activeWorker === w) activeWorker = null; }
+        return w.setParameters({tessedit_char_whitelist:'0123456789.', preserve_interword_spaces:'1', user_defined_dpi:'300'}).then(function(){
+          return TableCore.extract(im.gray, im.w, im.h, {
+            ocr: makeOcr(w),
+            progress: function(d, t){ if (my === job) msg(msgEl, 'جارٍ قراءة الخلايا… ' + d + ' / ' + t); },
+            cancelled: function(){ return my !== job; }
+          });
+        }).then(function(res){
+          return detectOrder(w, res).then(function(o){ if (res) res.order = o; done(); return res; }, function(){ done(); return res; });
+        }, function(e){ done(); throw e; });
+      });
+    });
+  }
+  /* which group comes first? read the header cells above the first data row (N / E, Lat / Lon, Northing / Easting ...) */
+  function classHead(t){
+    t = String(t || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (!t) return null;
+    if (/^(n|y)$/.test(t) || /^(lat|north)/.test(t)) return 'yx';
+    if (/^(e|x)$/.test(t) || /^(lon|east)/.test(t)) return 'xy';
+    return null;
+  }
+  function detectOrder(w, res){
+    if (!res || !res.all) return Promise.resolve(null);
+    var fi = -1, cand = [], i;
+    res.all.forEach(function(B, k){ if (fi < 0 && B.kept) fi = k; });
+    for (i = fi - 1; i >= 0 && cand.length < 3; i--) cand.push(i);
+    if (!cand.length) return Promise.resolve(null);
+    var ocr = makeOcr(w), found = null;
+    return w.setParameters({tessedit_char_whitelist:'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz()'}).then(function(){
+      return cand.reduce(function(p, bi){
+        return p.then(function(){
+          if (found) return;
+          var B = res.all[bi], seq = Promise.resolve(), got = [];
+          B.boxes.forEach(function(bx, ti){
+            seq = seq.then(function(){
+              var im = TableCore.tokenImage(res.prep, res.found, bx, B.Ht, {h:64, mode:'gray'});
+              return ocr(im, 7).then(function(r){ got.push(classHead(r.text)); }, function(){ got.push(null); });
+            });
+          });
+          return seq.then(function(){ for (var q = 0; q < got.length; q++) if (got[q]) { found = got[q]; break; } });
+        });
+      }, Promise.resolve());
+    }).then(function(){ return found; });
+  }
+
+  /* optional: read the photo with Claude using the person's own API key */
+  var AI_PROMPT = 'This image shows a table of surveying coordinates (a photo or a screenshot). Read it with extreme care and answer with ONE JSON object only, no other text:\n' +
+    '{"first_group":"E|N|lon|lat|unknown","rows":[{"name":"point number or name as printed, or null","cells":["..."]}]}\n' +
+    'Rules:\n- One entry in rows per data row (one point). Skip header rows and footnotes.\n' +
+    '- cells = every coordinate cell of that row as a string, in left-to-right order of the table, copied EXACTLY as printed: keep trailing zeros, never round, never correct. If the table splits a coordinate into degrees, minutes and seconds, give each part as its own cell.\n' +
+    '- Do not put the point-number column in cells; put it in name.\n' +
+    '- first_group = which coordinate group appears first from left to right: E or lon for Easting / Longitude / الشرقيات, N or lat for Northing / Latitude / الشماليات.\n' +
+    '- Convert Arabic-Indic digits to Latin digits. Use "." as the decimal separator.\n- If a digit is unreadable write "?" in its place; never guess.';
+  function imgToJpegB64(file){
+    return new Promise(function(res, rej){
+      var u = URL.createObjectURL(file), img = new Image();
+      img.onload = function(){
+        var k = Math.min(1, 1568 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+        var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(u); res(c.toDataURL('image/jpeg', 0.92).split(',')[1]);
+      };
+      img.onerror = rej; img.src = u;
+    });
+  }
+  function claudeRead(file){
+    var key = $('#apikey').value.trim();
+    return imgToJpegB64(file).then(function(b64){
+      return fetch('https://api.anthropic.com/v1/messages', {
+        method:'POST',
+        headers:{'content-type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true'},
+        body: JSON.stringify({model:'claude-sonnet-5-5', max_tokens:4000, messages:[{role:'user', content:[
+          {type:'image', source:{type:'base64', media_type:'image/jpeg', data:b64}}, {type:'text', text:AI_PROMPT}]}]})
+      });
+    }).then(function(r){
+      return r.json().then(function(j){
+        if (!r.ok) throw new Error(r.status === 401 ? 'مفتاح API غير صحيح' : 'رفض Claude الطلب (' + ((j && j.error && j.error.message) || r.status) + ')');
+        return j;
+      });
+    }).then(function(j){
+      var t = (j.content || []).map(function(b){ return b.text || ''; }).join(''), a = t.indexOf('{'), b = t.lastIndexOf('}');
+      if (a < 0 || b < a) throw new Error('رد غير مفهوم من Claude');
+      var o = JSON.parse(t.slice(a, b + 1));
+      var rows = (o.rows || []).map(function(r, i){
+        var cells = (r.cells || []).map(function(c){ return norm(dmsToDec(normDigits(c))).trim(); }).filter(function(c){ return c !== '' && c !== 'null'; });
+        return {name:(r.name != null && String(r.name).trim()) ? String(r.name).trim() : String(i + 1), vals:cells.join(' ')};
+      }).filter(function(r){ return r.vals; });
+      if (!rows.length) throw new Error('لم يجد Claude جدول إحداثيات في الصورة');
+      var fg = String(o.first_group || '').toLowerCase();
+      return {rows:rows, hint:/(^|\W)(n|lat|north)/.test(fg) && !/(^|\W)(e|lon|east)/.test(fg)};
+    });
+  }
+
+  function finishImage(rows, note, hint, how, order){
+    var nw = rows.filter(function(r){ return r.warn && r.warn.length; }).length;
+    $('#stop').hidden = true;
+    $('#paste').value = rows.map(function(r){ return r.name + '\t' + r.vals.replace(/ /g, '\t'); }).join('\n');
+    $('#order').value = order || (hint ? 'yx' : 'auto');
+    setRows(rows, note, hint);
+    msg(msgEl, 'تمت قراءة ' + rows.length + ' نقطة ' + how + '.' + (order ? (order === 'yx' ? ' الترتيب من رأس الجدول: الشمالي (N) ثم الشرقي (E).' : ' الترتيب من رأس الجدول: الشرقي (E) ثم الشمالي (N).') : '') + (nw ? ' ' + nw + ' صف غير مؤكد وتم تمييزه بالأصفر.' : '') + ' قارن الأرقام بالصورة قبل التنزيل.', nw ? 'warn' : 'ok');
+  }
+  /* second opinion on every number: compare it with glyphs rendered in the table's own font */
+  function fuseRows(res){
+    if (typeof DigitMatch === 'undefined') return null;
+    try {
+      var f = DigitMatch.fuse(res.all, function(bi, ti){ var B = res.all[bi]; return TableCore.tokenImage(res.prep, res.found, B.boxes[ti], B.Ht, {h:64, mode:'gray'}); });
+      if (!f || !f.bands.length) return null;
+      return f.bands.map(function(fb){ var B = res.all[fb.bi]; return {y0:B.y0, y1:B.y1, Ht:B.Ht, boxes:B.boxes, tokens:fb.tokens}; });
+    } catch(e) { try { console.warn('fuse failed', e); } catch(e2) {} return null; }
+  }
+  function handleImage(file){
+    var th = $('#thumb'); th.src = URL.createObjectURL(file); th.hidden = false; $('#thumbWrap').hidden = false;
+    var my = ++job;
+    $('#stop').hidden = false;
+    var useAI = $('#aiOn').checked && $('#apikey').value.trim(), first;
+    if (useAI) {
+      msg(msgEl, 'جارٍ قراءة الصورة بواسطة Claude…');
+      first = claudeRead(file).catch(function(e){
+        if (my !== job) return null;
+        msg(msgEl, (e instanceof TypeError ? 'تعذّر الاتصال بالإنترنت أو بـ Claude' : e.message) + '. أستخدم القراءة المحلية بدلًا منها…', 'warn');
+        return 'local';
+      });
+    } else first = Promise.resolve('local');
+    first.then(function(r){
+      if (my !== job) return;
+      if (r && r !== 'local') { finishImage(r.rows, 'قراءة Claude: ' + file.name, r.hint, 'بواسطة Claude'); return; }
+      if (typeof Tesseract === 'undefined' || typeof TableCore === 'undefined') { $('#stop').hidden = true; msg(msgEl, 'تعذّر تحميل قارئ الصور. تحقق من الاتصال بالإنترنت أو الصق الأرقام.', 'err'); return; }
+      msg(msgEl, 'جارٍ تحضير قارئ الصور… في أول مرة يحمّل المتصفح بيانات القراءة.');
+      return readTableLocal(th.src, my).then(function(res){
+        if (my !== job) return;
+        if (!res || !res.all || !res.all.length) return res;
+        msg(msgEl, 'جارٍ مطابقة كل رقم مع شكل الخط للتأكد من صحته…');
+        return new Promise(function(ok){ setTimeout(ok, 40); }).then(function(){ res.fused = fuseRows(res); return res; });
+      }).then(function(res){
+        if (my !== job) return;
+        var rows = [], use = res && (res.fused || res.rows);
+        if (use && use.length) {
+          var as = TableCore.assemble(use);
+          rows = as.rows.map(function(r){
+            var v = r.vals.filter(function(q){ return q !== ''; }), nm = r.name;
+            /* a small whole number followed by two decimals is the point number, not a coordinate */
+            if (v.length === 3 && /^\d{1,4}$/.test(v[0]) && /\./.test(v[1]) && /\./.test(v[2])) { nm = v[0]; v = v.slice(1); }
+            else if (v.length === 7 && /^\d{1,4}$/.test(v[0])) { nm = v[0]; v = v.slice(1); }
+            else if (v.length === 5 && /^\d{1,4}$/.test(v[0]) && /\./.test(v[2]) ) { nm = v[0]; v = v.slice(1); }
+            return {name:nm, vals:v.join(' '), n:v.length, warn:(r.warn || []).filter(function(q){ return q !== 'count'; }), img:rowThumb(res.prep, r.src)};
+          });
+          var cn = {}, md = 0, mb = 0;
+          rows.forEach(function(r){ cn[r.n] = (cn[r.n] || 0) + 1; });
+          Object.keys(cn).forEach(function(k){ if (cn[k] > mb) { mb = cn[k]; md = +k; } });
+          rows.forEach(function(r){ if (r.n !== md) r.warn.push('count'); });
+        }
+        if (!rows.length) { msg(msgEl, 'لم أتعرف على بنية الجدول. أجرّب طريقة القراءة العامة…', 'warn'); legacyImage(file); return; }
+        finishImage(rows, 'من الصورة: ' + file.name, false, 'من الجدول', res && res.order);
+      });
+    }).catch(function(){
+      if (my === job) { $('#stop').hidden = true; msg(msgEl, 'تعذّرت قراءة الصورة. تحقق من الاتصال بالإنترنت أو الصق الأرقام.', 'err'); }
+    });
+  }
+  $('#stop').addEventListener('click', function(){
+    job++; $('#stop').hidden = true;
+    if (activeWorker) { try { activeWorker.terminate(); } catch(e) {} activeWorker = null; }
+    msg(msgEl, 'أُوقفت القراءة.', 'warn');
+  });
+
+  function readAs(f, how){
+    return new Promise(function(res, rej){
+      var r = new FileReader(); r.onload = function(){ res(r.result); }; r.onerror = rej;
+      if (how === 'buf') r.readAsArrayBuffer(f); else r.readAsText(f);
+    });
+  }
+  function handleFile(f){
+    if (!f) return;
+    var n = f.name.toLowerCase();
+    $('#thumbWrap').hidden = true;
+    if ((f.type && f.type.indexOf('image/') === 0) || /\.(png|jpe?g|webp|gif)$/.test(n)) { handleImage(f); return; }
+    if (/\.(xlsx|xls|xlsm)$/.test(n)) {
+      if (typeof XLSX === 'undefined') { msg(msgEl, 'تعذّر تحميل قارئ Excel. ارفع الملف بصيغة CSV.', 'err'); return; }
+      readAs(f, 'buf').then(function(buf){
+        var wb = XLSX.read(buf, {type:'array'}), ws = wb.Sheets[wb.SheetNames[0]];
+        var arr = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+        var list = arr.map(function(row){ return row.map(function(c){ return fixNum(norm(dmsToDec(normDigits(c))).trim()); }).filter(function(c){ return c !== ''; }); });
+        var rows = parseTokenRows(list, geoFlag());
+        if (!rows.length) { msg(msgEl, 'لم أجد صفوفًا فيها رقمان على الأقل في الورقة الأولى.', 'err'); return; }
+        $('#paste').value = rows.map(function(r){ return r.name+'\t'+r.vals; }).join('\n');
+        setRows(rows, 'من الملف: ' + f.name);
+        msg(msgEl, 'تمت قراءة ' + rows.length + ' نقطة من الورقة الأولى.', 'ok');
+      }).catch(function(){ msg(msgEl, 'تعذّرت قراءة ملف Excel.', 'err'); });
+      return;
+    }
+    readAs(f, 'text').then(function(t){ $('#paste').value = t; loadText(t, 'من الملف: ' + f.name); }).catch(function(){ msg(msgEl, 'تعذّرت قراءة الملف.', 'err'); });
+  }
+  var drop = $('#drop');
+  $('#file').addEventListener('change', function(e){ handleFile(e.target.files[0]); e.target.value = ''; });
+  $('#camfile').addEventListener('change', function(e){ handleFile(e.target.files[0]); e.target.value = ''; });
+  drop.addEventListener('click', function(e){ if (e.target.closest && e.target.closest('button')) return; $('#file').click(); });
+  drop.addEventListener('keydown', function(e){ if ((e.key === 'Enter' || e.key === ' ') && e.target === drop) { e.preventDefault(); $('#file').click(); } });
+  $('#pick').addEventListener('click', function(e){ e.stopPropagation(); $('#file').click(); });
+  $('#cam').addEventListener('click', function(e){ e.stopPropagation(); $('#camfile').click(); });
+  try { if (window.matchMedia && window.matchMedia('(pointer:coarse)').matches) $('#cam').hidden = false; } catch(e) {}
+  ['dragenter','dragover'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave','drop'].forEach(function(ev){ drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function(e){ handleFile(e.dataTransfer.files[0]); });
+
+  /* ---------- table editing ---------- */
+  $('#rows').addEventListener('change', function(e){
+    var t = e.target, i = +t.getAttribute('data-i'), f = t.getAttribute('data-f');
+    if (isNaN(i) || !state.rows[i]) return;
+    if (f === 'name') state.rows[i].name = t.value.trim() || String(i+1);
+    else if (f === 'vals') { state.rows[i].vals = normDigits(t.value).trim(); state.rows[i].warn = []; }
+    state.isExample = false; render();
+  });
+  $('#rows').addEventListener('click', function(e){
+    var d = e.target.getAttribute && e.target.getAttribute('data-del');
+    if (d == null) return;
+    state.rows.splice(+d, 1); state.isExample = false; render();
+  });
+  $('#add').addEventListener('click', function(){
+    var last = state.rows[state.rows.length-1];
+    state.rows.push({name:String(state.rows.length+1), vals:last ? last.vals : ''});
+    state.isExample = false; render();
+  });
+  ['sys','order','mode','verts'].forEach(function(id){ $('#'+id).addEventListener('change', function(){
+    if (id === 'sys' && state.isExample) { /* keep example in sync with the chosen system */ }
+    render();
+  }); });
+
+  /* ---------- share sheet (phones) ---------- */
+  function initCaps(){
+    try {
+      if (navigator.share && navigator.canShare && typeof File !== 'undefined' &&
+          navigator.canShare({files:[new File(['x'], 'a.kmz', {type:'application/vnd.google-earth.kmz'})]})) $('#share').hidden = false;
+    } catch(e) {}
+  }
+
+
+  function toDMS(v, pos, neg){
+    var sg = v < 0 ? neg : pos, a = Math.abs(v), d = Math.floor(a), m = Math.floor((a - d) * 60), sc = ((a - d) * 60 - m) * 60;
+    sc = Math.round(sc * 10000) / 10000; if (sc >= 60) { sc = 0; m++; } if (m >= 60) { m = 0; d++; }
+    return d + '° ' + m + '′ ' + sc.toFixed(4).replace(/0+$/,'').replace(/\.$/,'') + '″ ' + sg;
+  }
+  function showCoord(v, isLat){ return $('#outfmt').value === 'dms' ? toDMS(v, isLat ? 'N' : 'E', isLat ? 'S' : 'W') : fmt(v, 7); }
+  function dmsPart(ids, h){
+    var t = ['#d'+ids, '#m'+ids, '#s'+ids].map(function(i){ var x = fixNum(norm(normDigits($(i).value)).trim()); return x === '' ? '0' : x; });
+    if (!t.every(function(x){ return /^[+-]?(\d+\.?\d*|\.\d+)$/.test(x); })) return null;
+    var v = Math.abs(parseFloat(t[0])) + parseFloat(t[1]) / 60 + parseFloat(t[2]) / 3600;
+    return ((t[0].charAt(0) === '-' || h === '-') ? -1 : 1) * v;
+  }
+  function updPrev(){
+    var a = dmsPart('1', $('#h1').value), b = dmsPart('2', $('#h2').value), el = $('#mprev');
+    el.textContent = (a === null || b === null) ? '' : 'العشري: ' + a.toFixed(8) + '° ، ' + b.toFixed(8) + '°';
+  }
+  ['d1','m1','s1','d2','m2','s2','h1','h2'].forEach(function(id){ $('#'+id).addEventListener('input', updPrev); $('#'+id).addEventListener('change', updPrev); });
+  $('#outfmt').addEventListener('change', function(){ render(); });
+
+  /* ---------- choose: upload a picture / file, or type the coordinates ---------- */
+  function setInputMode(m){
+    var man = m === 'man';
+    if (!man && prevSys) { sysSel.value = prevSys; prevSys = null; }
+    $('#pMan').hidden = !man; $('#pFile').hidden = man; $('#aiBox').hidden = man;
+    $('#modeMan').classList.toggle('primary', man); $('#modeFile').classList.toggle('primary', !man);
+    $('#modeMan').setAttribute('aria-pressed', man); $('#modeFile').setAttribute('aria-pressed', !man);
+    if (man) { applyManFmt(); setTimeout(function(){ try { ($('#mfmt').value === 'dms' ? $('#d1') : $('#mx')).focus(); } catch(e) {} }, 50); }
+  }
+  var prevSys = null;
+  function applyManFmt(){
+    var dms = $('#mfmt').value === 'dms';
+    $('#mDec').hidden = dms; $('#mDms').hidden = !dms;
+    if (dms) { if (sysSel.value !== 'geo') prevSys = sysSel.value; sysSel.value = 'geo'; $('#mhint').textContent = 'الدرجات والدقائق والثواني تُحوَّل إلى درجات عشرية WGS84. اكتب علامة (-) قبل الدرجة للغرب أو الجنوب.'; }
+    else { if (prevSys) { sysSel.value = prevSys; prevSys = null; } }
+    if (!dms) $('#mhint').textContent = 'أدخل الأرقام كما هي في جدولك. اختر نظام الإحداثيات من "إعدادات التحويل" أعلاه، فإن لم تكن بنظام WGS84 (مثل الحزام الأحمر أو UTM) فتُحوَّل تلقائيًا إلى WGS84.';
+    render();
+  }
+  function mnum(id){ var t = fixNum(norm(normDigits($(id).value)).trim()); return t; }
+  function isN(t){ return /^[+-]?(\d+\.?\d*|\.\d+)$/.test(t); }
+  $('#modeFile').addEventListener('click', function(){ setInputMode('file'); });
+  $('#modeMan').addEventListener('click', function(){ setInputMode('man'); });
+  $('#mfmt').addEventListener('change', applyManFmt);
+  $('#mform').addEventListener('submit', function(e){
+    e.preventDefault();
+    var mm = $('#mmsg'), vals, dms = $('#mfmt').value === 'dms', ids, fields;
+    if (dms) {
+      var g = function(id, def){ var t = mnum(id); return t === '' ? def : t; };
+      fields = [g('#d1', ''), g('#m1', '0'), g('#s1', '0'), g('#d2', ''), g('#m2', '0'), g('#s2', '0')];
+      if (!fields.every(isN)) { mm.textContent = 'أكمل الدرجات في المجموعتين، واكتب أرقامًا فقط.'; mm.className = 'msg err'; return; }
+      if ($('#h1').value === '-' && fields[0].charAt(0) !== '-') fields[0] = '-' + fields[0];
+      if ($('#h2').value === '-' && fields[3].charAt(0) !== '-') fields[3] = '-' + fields[3];
+      vals = fields.join(' ');
+    } else {
+      fields = [mnum('#mx'), mnum('#my')];
+      if (!fields.every(isN)) { mm.textContent = 'اكتب رقمين صحيحين: X و Y.'; mm.className = 'msg err'; return; }
+      vals = fields.join(' ');
+    }
+    if (state.isExample) { state.rows = []; state.isExample = false; }
+    var name = ($('#mname').value || '').trim() || String(state.rows.length + 1);
+    state.rows.push({name:name, vals:vals}); state.srcNote = 'إدخال يدوي'; state.hintSwap = false;
+    render();
+    mm.textContent = 'أُضيفت النقطة ' + name + '. عدد النقاط: ' + state.rows.length; mm.className = 'msg ok';
+    ['#mname','#mx','#my','#d1','#m1','#s1','#d2','#m2','#s2'].forEach(function(id){ $(id).value = ''; }); $('#h1').value = ''; $('#h2').value = ''; updPrev();
+    $('#mname').placeholder = String(state.rows.length + 1);
+    try { (dms ? $('#d1') : $('#mx')).focus(); } catch(err) {}
+  });
+  $('#mclear').addEventListener('click', function(){
+    state.rows = []; state.isExample = false; state.srcNote = ''; render(); $('#mmsg').textContent = 'تم مسح النقاط.'; $('#mmsg').className = 'msg';
+  });
+
+  /* ---------- Claude mode settings (kept on this device only) ---------- */
+  try {
+    var sk = localStorage.getItem('mshaker_key');
+    if (sk) { $('#apikey').value = sk; $('#aiRemember').checked = true; $('#aiOn').checked = localStorage.getItem('mshaker_ai') === '1'; }
+  } catch(e) {}
+  function saveAI(){
+    try {
+      if ($('#aiRemember').checked && $('#apikey').value.trim()) { localStorage.setItem('mshaker_key', $('#apikey').value.trim()); localStorage.setItem('mshaker_ai', $('#aiOn').checked ? '1' : '0'); }
+      else { localStorage.removeItem('mshaker_key'); localStorage.removeItem('mshaker_ai'); }
+    } catch(e) {}
+  }
+  ['aiOn','apikey','aiRemember'].forEach(function(id){ $('#'+id).addEventListener('change', saveAI); });
+
+  /* ---------- start with a worked example ---------- */
+  function start(){
+    if (typeof proj4 === 'undefined') { msg(msgEl, 'تعذّر تحميل مكتبة التحويل. أعد تحميل الصفحة.', 'err'); return; }
+    var pts = [[30.0480,31.2300],[30.0480,31.2360],[30.0430,31.2360],[30.0430,31.2300]];
+    var sys = SYSTEMS.redbelt, cv = converter(sys), rows = [];
+    pts.forEach(function(p,i){
+      var r = cv.forward([p[1], p[0]]);
+      rows.push({name:'P'+(i+1), vals:r[0].toFixed(3)+' '+r[1].toFixed(3)});
+    });
+    state.rows = rows; state.isExample = true;
+    $('#paste').value = rows.map(function(r){ return r.name+'\t'+r.vals.replace(' ','\t'); }).join('\n');
+    render();
+    initCaps();
+  }
+  start();
+
+  /* ---------- install as an app ---------- */
+  var deferred = null;
+  window.addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); deferred = e; $('#install').hidden = false; });
+  window.addEventListener('appinstalled', function(){ deferred = null; $('#install').hidden = true; $('#iosHint').hidden = true; });
+  $('#install').addEventListener('click', function(){
+    if (!deferred) return;
+    deferred.prompt();
+    deferred.userChoice.then(function(){ deferred = null; $('#install').hidden = true; });
+  });
+  try {
+    var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+    var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (ios && !standalone && /^https?:$/.test(location.protocol)) $('#iosHint').hidden = false;
+    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(function(){});
+  } catch(e) {}
+})();
+</script>
+</body>
+</html>
